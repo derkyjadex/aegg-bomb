@@ -5,6 +5,7 @@ import Control.Concurrent.Chan
 import Control.Exception
 import Control.Monad
 import Data.Function (fix)
+import Physics
 
 data Msg = Text Int String
          | Quit
@@ -12,10 +13,6 @@ data Msg = Text Int String
 data GameState = GameState { players :: [Player]
                            , gameRunning :: Bool
                            }
-
-type Pos = (Double, Double)
-type Vec = (Double, Double)
-type Box = (Pos, Pos)
 
 data Player = Player { playerName :: String
                      , playerChan :: Chan PlayerMsg
@@ -79,9 +76,13 @@ runPhysics game =
   let players' = map updatePos $ players game
   in game { players = players' }
   where updatePos p =
-          let (x, y) = playerPos p
-              (dx, dy) = playerVel p
-              pos' = (x + dx, y + dy)
+          let pos = playerPos p
+              vel = playerVel p
+              bounds = ((-0.5, -0.5), (0.5, 0.5))
+              boxes = map (boxAt bounds . playerPos) $
+                      filter (/= p) $
+                      players game
+              Trace pos' _ = trace pos bounds vel boxes
           in p { playerPos = pos' }
 
 runRender :: GameState -> IO ()
