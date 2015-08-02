@@ -2,6 +2,7 @@ import Network.Socket
 import System.IO
 import Control.Concurrent
 import Control.Concurrent.Chan
+import Control.Applicative
 import Control.Exception
 import Control.Monad
 import Data.Function (fix)
@@ -10,14 +11,16 @@ import Physics
 data Msg = Text Int String
          | Quit
 
-data GameState = GameState { players :: [Player]
-                           , gameRunning :: Bool
+data GameState = GameState { gameRunning :: Bool
+                           , players :: [Player]
+                           , walls :: [Box]
                            }
 
 data Player = Player { playerName :: String
                      , playerChan :: Chan PlayerMsg
                      , playerPos :: Pos
                      , playerVel :: Vec
+                     , playerBounds :: Box
                      }
               deriving (Eq)
 
@@ -36,8 +39,13 @@ data PlayerCmd = Move Vec
                deriving (Show, Read)
 
 newGame :: GameState
-newGame = GameState { players = []
-                    , gameRunning = True
+newGame = GameState { gameRunning = True
+                    , players = []
+                    , walls = [ ((-11, -11), (-10, 10))
+                              , ((-11, 10), (10, 11))
+                              , ((10, -10), (11, 11))
+                              , ((-10, -11), (11, -10))
+                              ]
                     }
 
 processInput :: GameMsg -> GameState -> GameState
@@ -49,6 +57,7 @@ processInput (AddPlayer name chan) game =
                       , playerChan = chan
                       , playerPos = (0, 0)
                       , playerVel = (0, 0)
+                      , playerBounds = ((-0.5, -0.5), (0.5, 0.5))
                       }
   in game { players = player : players game }
 
@@ -78,10 +87,11 @@ runPhysics game =
   where updatePos p =
           let pos = playerPos p
               vel = playerVel p
-              bounds = ((-0.5, -0.5), (0.5, 0.5))
-              boxes = map (boxAt bounds . playerPos) $
-                      filter (/= p) $
-                      players game
+              bounds = playerBounds p
+              playersBoxes = map (boxAt <$> playerBounds <*> playerPos) $
+                             filter (/= p) $
+                             players game
+              boxes = playersBoxes ++ walls game
               Trace pos' _ = trace pos bounds vel boxes
           in p { playerPos = pos' }
 
