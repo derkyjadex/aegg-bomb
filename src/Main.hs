@@ -7,6 +7,7 @@ import Control.Exception
 import Control.Monad
 import Data.Function (fix)
 import Physics
+import Graphics
 
 data Msg = Text Int String
          | Quit
@@ -95,12 +96,11 @@ runPhysics game =
               Trace pos' _ = trace pos bounds vel boxes
           in p { playerPos = pos' }
 
-runRender :: GameState -> IO ()
-runRender game = do
-  mapM_ (putStrLn . display) $ players game
-  putStrLn "---"
-  where display p =
-          (playerName p) ++ " @ " ++ (show $ playerPos p)
+runRender :: GameState -> RenderChan -> IO ()
+runRender game chan =
+  let ws = walls game
+      ps = map (liftA3 (,,) playerName playerPos playerBounds) $ players game
+  in sendScene chan $ Scene ws ps
 
 runTrace :: GameState -> IO ()
 runTrace game =
@@ -108,25 +108,25 @@ runTrace game =
   then mapM_ (\p -> writeChan (playerChan p) Removed) $ players game
   else return ()
 
-runGame :: Chan GameMsg -> GameState -> IO ()
-runGame chan game = do
+runGame :: Chan GameMsg -> RenderChan -> GameState -> IO ()
+runGame chan renderChan game = do
   writeChan chan Frame
   game' <- liftM runPhysics $ runInput chan game
-  runRender game'
+  runRender game' renderChan
   runTrace game'
   threadDelay (500 * 1000)
   if gameRunning game
-    then runGame chan game'
+    then runGame chan renderChan game'
     else return ()
 
-runServer :: IO ()
-runServer = do
+runServer :: RenderChan -> IO ()
+runServer renderChan = do
   sock <- socket AF_INET Stream 0
   setSocketOption sock ReuseAddr 1
   bindSocket sock (SockAddrInet 4242 iNADDR_ANY)
   listen sock 2
   gameChan <- newChan
-  game <- forkIO $ runGame gameChan newGame
+  game <- forkIO $ runGame gameChan renderChan newGame
   acceptor <- forkIO $ runAccept sock gameChan
   runConsole
   writeChan gameChan Stop
@@ -183,4 +183,7 @@ maybeRead s =
     _ -> Nothing
 
 main :: IO ()
-main = runServer
+main = do
+  chan <- newRenderChan
+  forkIO $ runServer chan
+  renderMain chan
