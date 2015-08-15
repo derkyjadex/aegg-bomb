@@ -8,6 +8,7 @@ import Control.Applicative
 import Control.Exception
 import Control.Monad
 import Data.Function (fix)
+import Data.Time
 import Physics
 import Graphics
 
@@ -107,13 +108,26 @@ runTrace game =
   then mapM_ (\p -> writeChan (playerChan p) Removed) $ players game
   else return ()
 
+targetFrameTime :: NominalDiffTime
+targetFrameTime = 1 / 60
+
+delayUntil :: UTCTime -> IO ()
+delayUntil end = do
+  start <- getCurrentTime
+  let delay = diffUTCTime end start
+  threadDelay $ round $ delay * 1000000
+
 runGame :: Chan GameMsg -> RenderChan -> GameState -> IO ()
 runGame chan renderChan game = do
+  t0 <- getCurrentTime
+  runGame' chan renderChan game t0
+
+runGame' :: Chan GameMsg -> RenderChan -> GameState -> UTCTime -> IO ()
+runGame' chan renderChan game t0 = do
   writeChan chan Frame
   game' <- liftM runPhysics $ runInput chan game
   runRender game' renderChan
   runTrace game'
-  threadDelay (16 * 1000)
-  if gameRunning game
-    then runGame chan renderChan game'
-    else return ()
+  let t1 = addUTCTime targetFrameTime t0
+  delayUntil t1
+  when (gameRunning game) $ runGame' chan renderChan game' t1
