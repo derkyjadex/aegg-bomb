@@ -1,10 +1,12 @@
 import Control.Concurrent
-import Graphics
 import Game
+import Graphics
 import Server
 
 main :: IO ()
 main = do
-  chan <- newRenderChan
-  forkIO $ runServer chan
-  renderMain chan
+  gameChan <- newGameChan
+  renderChan <- newRenderChan
+  forkIO $ runGame gameChan renderChan newGame
+  forkIO $ runServer gameChan
+  renderMain renderChan

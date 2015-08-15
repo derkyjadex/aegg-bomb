@@ -28,12 +28,17 @@ data GameMsg = Frame
              | RemovePlayer String
              deriving (Eq)
 
+type GameChan = Chan GameMsg
+
 data PlayerMsg = NothingSeen Pos
                | Removed
                deriving (Eq)
 
 data PlayerCmd = Move Vec
                deriving (Show, Read)
+
+newGameChan :: IO GameChan
+newGameChan = newChan
 
 newGame :: GameState
 newGame = GameState { gameRunning = True
@@ -70,7 +75,7 @@ processInput (RemovePlayer name) game =
   let players' = filter ((name /=) . playerName) $ players game
   in game { players = players' }
 
-runInput :: Chan GameMsg -> GameState -> IO GameState
+runInput :: GameChan -> GameState -> IO GameState
 runInput chan game = do
   msg <- readChan chan
   case msg of
@@ -113,12 +118,12 @@ delayUntil end = do
   let delay = diffUTCTime end start
   threadDelay $ round $ delay * 1000000
 
-runGame :: Chan GameMsg -> RenderChan -> GameState -> IO ()
+runGame :: GameChan -> RenderChan -> GameState -> IO ()
 runGame chan renderChan game = do
   t0 <- getCurrentTime
   runGame' chan renderChan game t0
 
-runGame' :: Chan GameMsg -> RenderChan -> GameState -> UTCTime -> IO ()
+runGame' :: GameChan -> RenderChan -> GameState -> UTCTime -> IO ()
 runGame' chan renderChan game t0 = do
   writeChan chan Frame
   game' <- liftM runPhysics $ runInput chan game

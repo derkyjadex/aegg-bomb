@@ -6,33 +6,15 @@ import Control.Concurrent
 import Control.Concurrent.Chan
 import Control.Exception
 import Control.Monad
-import Graphics
 import Game
 
-runServer :: RenderChan -> IO ()
-runServer renderChan = do
+runServer :: GameChan -> IO ()
+runServer gameChan = do
   sock <- socket AF_INET Stream 0
   setSocketOption sock ReuseAddr 1
   bindSocket sock (SockAddrInet 4242 iNADDR_ANY)
   listen sock 2
-  gameChan <- newChan
-  game <- forkIO $ runGame gameChan renderChan newGame
-  acceptor <- forkIO $ runAccept sock gameChan
-  runConsole
-  writeChan gameChan Stop
-  killThread game
-  killThread acceptor
-  close sock
-
-runConsole :: IO ()
-runConsole = do
-  putStr "> "
-  cmd <- getLine
-  case cmd of
-    "quit" -> return ()
-    _ -> do
-      putStrLn "Unknown command"
-      runConsole
+  runAccept sock gameChan
 
 runAccept :: Socket -> Chan GameMsg -> IO ()
 runAccept sock chan = do
