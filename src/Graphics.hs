@@ -12,7 +12,6 @@ import Graphics.GLUtil
 import Graphics.GLUtil.Camera2D
 import Graphics.VinylGL
 import Linear (V2(..), V3(..), M33)
-import System.Exit
 import System.IO
 import Physics
 
