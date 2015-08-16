@@ -110,29 +110,43 @@ keyCallback win key scancode action mods =
   then G.setWindowShouldClose win True
   else return ()
 
+readPanVar :: MVar (V2 GLfloat) -> IO (V2 GLfloat)
+readPanVar panVar =
+  liftM (fromMaybe $ V2 0 0) $ tryReadMVar panVar
+
+scrollCallback :: MVar (V2 GLfloat) -> G.ScrollCallback
+scrollCallback panVar win dx dy = do
+  let d = V2 (realToFrac (-dx)) (realToFrac dy)
+  pan <- readPanVar panVar
+  swapMVar panVar $ pan + 0.05 * d
+  return ()
+
 renderMain :: RenderChan -> IO ()
 renderMain chan = do
-  withWindow 640 480 "Aegg Bomb" $ \w -> do
+  withWindow 640 640 "Aegg Bomb" $ \w -> do
     G.setKeyCallback w $ Just keyCallback
+    panVar <- newMVar $ V2 0 0
+    G.setScrollCallback w $ Just (scrollCallback panVar)
     renderer <- setup
-    mainLoop chan w renderer
+    mainLoop chan panVar w renderer
 
-mainLoop :: RenderChan -> G.Window -> (Display -> Scene -> IO ()) -> IO ()
-mainLoop chan w renderer = do
+mainLoop :: RenderChan -> MVar (V2 GLfloat) -> G.Window -> (Display -> Scene -> IO ()) -> IO ()
+mainLoop chan panVar w renderer = do
   shouldClose <- G.windowShouldClose w
   when (not shouldClose) $ do
     (width, height) <- G.getFramebufferSize w
     viewport $= (Position 0 0, Size (fromIntegral width) (fromIntegral height))
     clear [ColorBuffer]
 
-    let cameraMatrix = camMatrix camera2D
+    pan <- readPanVar panVar
+    let cameraMatrix = camMatrix $ track pan $ camera2D
         info = SField =: cameraMatrix
     scene <- readScene chan
     renderer info scene
 
     G.swapBuffers w
     G.pollEvents
-    mainLoop chan w renderer
+    mainLoop chan panVar w renderer
 
 withWindow :: Int -> Int -> String -> (G.Window -> IO ()) -> IO ()
 withWindow width height title f = do
@@ -150,6 +164,7 @@ withWindow width height title f = do
     when (isNothing m) (error "Couldn't create window")
 
     G.makeContextCurrent m
+    G.swapInterval 1
     f w
     G.setErrorCallback $ Just errorCallback
     G.destroyWindow w
