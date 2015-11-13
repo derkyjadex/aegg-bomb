@@ -9,12 +9,14 @@ import Control.Monad
 import Game
 
 runServer :: GameChan -> IO ()
-runServer gameChan = do
-  sock <- socket AF_INET Stream 0
-  setSocketOption sock ReuseAddr 1
-  bindSocket sock (SockAddrInet 4242 iNADDR_ANY)
-  listen sock 2
-  runAccept sock gameChan
+runServer gameChan =
+  bracket (socket AF_INET Stream 0)
+          (close)
+          (\sock -> do
+              setSocketOption sock ReuseAddr 1
+              bindSocket sock (SockAddrInet 4242 iNADDR_ANY)
+              listen sock 2
+              runAccept sock gameChan)
 
 runAccept :: Socket -> Chan GameMsg -> IO ()
 runAccept sock chan = do
