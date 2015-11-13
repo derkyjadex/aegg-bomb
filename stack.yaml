@@ -1,15 +1,5 @@
 flags: {}
 packages:
 - '.'
-extra-deps:
-- GLFW-b-1.4.7.3
-- GLUtil-0.8.7
-- OpenGL-2.13.1.0
-- vinyl-0.5.1
-- vinyl-gl-0.3.0.1
-- GLURaw-1.5.0.2
-- ObjectName-1.1.0.0
-- OpenGLRaw-2.6.0.0
-- bindings-GLFW-3.1.1.4
-- hpp-0.1.0.0
+extra-deps: []
 resolver: lts-3.13
