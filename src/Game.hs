@@ -100,14 +100,15 @@ runPhysics game =
 runRender :: GameState -> RenderChan -> IO ()
 runRender game chan =
   let ws = walls game
-      ps = map (liftA3 (,,) playerName playerPos playerBounds) $ players game
+      ps = map ((,,) <$> playerName <*> playerPos <*> playerBounds) $ players game
   in sendScene chan $ Scene ws ps
 
 runTrace :: GameState -> IO ()
 runTrace game =
   if not $ gameRunning game
-  then mapM_ (\p -> writeChan (playerChan p) Removed) $ players game
-  else return ()
+  then send (const Removed)
+  else send (NothingSeen . playerPos)
+  where send f = mapM_ (\p -> writeChan (playerChan p) (f p)) $ players game
 
 targetFrameTime :: NominalDiffTime
 targetFrameTime = 1 / 60
@@ -126,9 +127,9 @@ runGame chan renderChan game = do
 runGame' :: GameChan -> RenderChan -> GameState -> UTCTime -> IO ()
 runGame' chan renderChan game t0 = do
   writeChan chan Frame
-  game' <- liftM runPhysics $ runInput chan game
+  game' <- runPhysics <$> runInput chan game
   runRender game' renderChan
   runTrace game'
   let t1 = addUTCTime targetFrameTime t0
   delayUntil t1
-  when (gameRunning game) $ runGame' chan renderChan game' t1
+  when (gameRunning game') $ runGame' chan renderChan game' t1
