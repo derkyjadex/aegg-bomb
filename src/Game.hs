@@ -5,6 +5,7 @@ import Control.Concurrent.Chan
 import Control.Applicative
 import Control.Monad
 import Data.Time
+import Data.Time.Calendar
 import Physics
 import Graphics
 
@@ -15,6 +16,7 @@ data GameState = GameState { gameRunning :: Bool
 
 data Player = Player { playerName :: String
                      , playerChan :: Chan PlayerMsg
+                     , playerNextTrace :: UTCTime
                      , playerPos :: Pos
                      , playerVel :: Vec
                      , playerBounds :: Box
@@ -50,6 +52,9 @@ newGame = GameState { gameRunning = True
                               ]
                     }
 
+zeroTime :: UTCTime
+zeroTime = UTCTime (ModifiedJulianDay 0) (secondsToDiffTime 0)
+
 processInput :: GameMsg -> GameState -> GameState
 processInput Frame game = game
 processInput Stop game = game { gameRunning = False }
@@ -57,6 +62,7 @@ processInput Stop game = game { gameRunning = False }
 processInput (AddPlayer name chan) game =
   let player = Player { playerName = name
                       , playerChan = chan
+                      , playerNextTrace = zeroTime
                       , playerPos = (0, 0)
                       , playerVel = (0, 0)
                       , playerBounds = ((-0.5, -0.5), (0.5, 0.5))
@@ -103,15 +109,29 @@ runRender game chan =
       ps = map ((,,) <$> playerName <*> playerPos <*> playerBounds) $ players game
   in sendScene chan $ Scene ws ps
 
-runTrace :: GameState -> IO ()
-runTrace game =
+runTrace :: GameState -> UTCTime -> IO GameState
+runTrace game t =
   if not $ gameRunning game
-  then send (const Removed)
-  else send (NothingSeen . playerPos)
-  where send f = mapM_ (\p -> writeChan (playerChan p) (f p)) $ players game
+  then do
+    send (const Removed) $ players game
+    return game
+  else let ps = filter needsUpdate $ players game
+           nextTrace = addUTCTime playerTraceTime t
+           players' = map (\p -> if needsUpdate p
+                                 then p { playerNextTrace = nextTrace }
+                                 else p)
+                          (players game)
+       in do
+         send (NothingSeen . playerPos) ps
+         return game { players = players' }
+  where send f ps = mapM_ (\p -> writeChan (playerChan p) (f p)) ps
+        needsUpdate p = playerNextTrace p <= t
 
 targetFrameTime :: NominalDiffTime
 targetFrameTime = 1 / 60
+
+playerTraceTime :: NominalDiffTime
+playerTraceTime = 1 / 2
 
 delayUntil :: UTCTime -> IO ()
 delayUntil end = do
@@ -129,7 +149,7 @@ runGame' chan renderChan game t0 = do
   writeChan chan Frame
   game' <- runPhysics <$> runInput chan game
   runRender game' renderChan
-  runTrace game'
+  game'' <- runTrace game' t0
   let t1 = addUTCTime targetFrameTime t0
   delayUntil t1
-  when (gameRunning game') $ runGame' chan renderChan game' t1
+  when (gameRunning game'') $ runGame' chan renderChan game'' t1
