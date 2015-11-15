@@ -43,15 +43,11 @@ data PlayerCmd = Move Vec
 newGameChan :: IO GameChan
 newGameChan = newChan
 
-newGame :: GameState
-newGame = GameState { gameRunning = True
-                    , players = []
-                    , walls = [ ((-11, -11), (-10, 10))
-                              , ((-11, 10), (10, 11))
-                              , ((10, -10), (11, 11))
-                              , ((-10, -11), (11, -10))
-                              ]
-                    }
+newGame :: [Box] -> GameState
+newGame ws = GameState { gameRunning = True
+                       , players = []
+                       , walls = ws
+                       }
 
 zeroTime :: UTCTime
 zeroTime = UTCTime (ModifiedJulianDay 0) (secondsToDiffTime 0)
