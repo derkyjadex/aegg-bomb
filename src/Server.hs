@@ -37,7 +37,8 @@ runConnection (sock, addr) gameChan = do
   reader <- forkIO $ forever $ do
     msg <- readChan playerChan
     case msg of
-      NothingSeen pos -> hPutStrLn h $ "Nothing seen from " ++ show pos
+      CurrentPos pos -> hPutStrLn h $ "Current position " ++ show pos
+      CanSee others -> hPutStrLn h $ "Can see " ++ show others
       Removed -> hClose h
 
   handle (\ex@(SomeException _) -> return ()) $ forever $ do

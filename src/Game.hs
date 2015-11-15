@@ -32,7 +32,8 @@ data GameMsg = Frame
 
 type GameChan = Chan GameMsg
 
-data PlayerMsg = NothingSeen Pos
+data PlayerMsg = CurrentPos Pos
+               | CanSee [(String, Pos)]
                | Removed
                deriving (Eq)
 
@@ -96,9 +97,8 @@ runPhysics game =
           let pos = playerPos p
               vel = playerVel p
               bounds = playerBounds p
-              playersBoxes = map (boxAt <$> playerBounds <*> playerPos) $
-                             filter (/= p) $
-                             players game
+              otherPlayers = filter (/= p) $ players game
+              playersBoxes = map (boxAt <$> playerBounds <*> playerPos) otherPlayers
               boxes = playersBoxes ++ walls game
               Trace pos' _ = trace pos bounds vel boxes
           in p { playerPos = pos' }
@@ -108,6 +108,14 @@ runRender game chan =
   let ws = walls game
       ps = map ((,,) <$> playerName <*> playerPos <*> playerBounds) $ players game
   in sendScene chan $ Scene ws ps
+
+calculateTrace :: GameState -> Player -> [(String, Pos)]
+calculateTrace game player =
+  let otherPlayers = filter (/= player) $ players game
+      candidates = map ((,) <$> playerName <*> playerPos) otherPlayers
+      pos = playerPos player
+      ws = walls game
+  in filter (\(_, pos') -> canSee pos' pos ws) candidates
 
 runTrace :: GameState -> UTCTime -> IO GameState
 runTrace game t =
@@ -122,7 +130,8 @@ runTrace game t =
                                  else p)
                           (players game)
        in do
-         send (NothingSeen . playerPos) ps
+         send (CurrentPos . playerPos) ps
+         send (CanSee . calculateTrace game) ps
          return game { players = players' }
   where send f ps = mapM_ (\p -> writeChan (playerChan p) (f p)) ps
         needsUpdate p = playerNextTrace p <= t

@@ -75,3 +75,31 @@ trace (x, y) bounds (dx, dy) boxes =
               maxX' = x + maxX bounds + (max 0 dx)
               maxY' = y + maxY bounds + (max 0 dy)
           in ((minX', minY'), (maxX', maxY'))
+
+canSee :: Pos -> Pos -> [Box] -> Bool
+canSee a b boxes =
+  not $ any (lineIntersectsBox (a, b)) boxes
+
+lineIntersectsBox :: (Pos, Pos) -> Box -> Bool
+lineIntersectsBox ((x1, y1), (x2, y2)) ((minX, minY), (maxX, maxY))
+  | quickOut = False
+  | quickIn = True
+  | otherwise = intersectsLines
+  where quickOut = (x1 < minX && x2 < minX) ||
+                   (x1 > maxX && x2 > maxX) ||
+                   (y1 < minY && y2 < minY) ||
+                   (y1 > maxY && y2 > maxY)
+        quickIn = (x1 >= minX && x1 <= maxX && x2 >= minX && x2 <= maxX) ||
+                  (y1 >= minY && y1 <= maxY && y2 >= minY && y2 <= maxY) ||
+                  (x1 >= minX && x1 <= maxX && y1 >= minY && y1 <= maxY) ||
+                  (x2 >= minX && x2 <= maxX && y2 >= minY && y2 <= maxY)
+        yAt x = let a = (y2 - y1) / (x2 - x1)
+                    b = y1 - a * x1
+                in a * x + b
+        xAt y = let a = (x2 - x1) / (y2 - y1)
+                    b = x1 - a * y1
+                in a * y + b
+        intersectsLines = (xAt minY >= minX && xAt minY <= maxX) ||
+                          (xAt maxY >= minX && xAt maxY <= maxX) ||
+                          (yAt minX >= minY && yAt minX <= maxY) ||
+                          (yAt maxX >= minY && yAt maxX <= maxY)
