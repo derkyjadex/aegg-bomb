@@ -4,14 +4,17 @@ import Control.Concurrent
 import Control.Concurrent.Chan
 import Control.Applicative
 import Control.Monad
+import Data.List
+import Data.Maybe
 import Data.Time
 import Data.Time.Calendar
 import Physics
 import Graphics
 
 data GameState = GameState { gameRunning :: Bool
-                           , players :: [Player]
                            , walls :: [Box]
+                           , players :: [Player]
+                           , eggs :: [Egg]
                            }
 
 data Player = Player { playerName :: String
@@ -23,21 +26,32 @@ data Player = Player { playerName :: String
                      }
               deriving (Eq)
 
+data Egg = Egg { eggPlayer :: String
+               , eggPos :: Pos
+               , eggVel :: Vec
+               , eggHeight :: Double
+               , eggVVel :: Double
+               , eggBounds :: Box
+               }
+
 data GameMsg = Frame
              | Stop
              | AddPlayer String (Chan PlayerMsg)
              | MovePlayer String Vec
              | RemovePlayer String
+             | ThrowEgg String Vec
              deriving (Eq)
 
 type GameChan = Chan GameMsg
 
 data PlayerMsg = CurrentPos Pos
-               | CanSee [(String, Pos)]
+               | PlayersSeen [(String, Pos)]
+               | EggsSeen [Pos]
                | Removed
                deriving (Eq)
 
 data PlayerCmd = Move Vec
+               | Throw Vec
                deriving (Show, Read)
 
 newGameChan :: IO GameChan
@@ -45,8 +59,9 @@ newGameChan = newChan
 
 newGame :: [Box] -> GameState
 newGame ws = GameState { gameRunning = True
-                       , players = []
                        , walls = ws
+                       , players = []
+                       , eggs = []
                        }
 
 zeroTime :: UTCTime
@@ -78,6 +93,18 @@ processInput (RemovePlayer name) game =
   let players' = filter ((name /=) . playerName) $ players game
   in game { players = players' }
 
+processInput (ThrowEgg owner vel) game =
+  fromMaybe game $ do
+    player <- find ((owner ==) . playerName) $ players game
+    let egg = Egg { eggPlayer = owner
+                  , eggPos = playerPos player
+                  , eggVel = vel
+                  , eggHeight = 0
+                  , eggVVel = 1
+                  , eggBounds = ((-0.25, -0.25), (0.25, 0.25))
+                  }
+    return $ game { eggs = egg : eggs game }
+
 runInput :: GameChan -> GameState -> IO GameState
 runInput chan game = do
   msg <- readChan chan
@@ -87,9 +114,12 @@ runInput chan game = do
 
 runPhysics :: GameState -> GameState
 runPhysics game =
-  let players' = map updatePos $ players game
-  in game { players = players' }
-  where updatePos p =
+  let players' = map updatePlayer $ players game
+      eggs' = map updateEgg $ eggs game
+  in game { players = players'
+          , eggs = eggs'
+          }
+  where updatePlayer p =
           let pos = playerPos p
               vel = playerVel p
               bounds = playerBounds p
@@ -98,20 +128,41 @@ runPhysics game =
               boxes = playersBoxes ++ walls game
               Trace pos' _ = trace pos bounds vel boxes
           in p { playerPos = pos' }
+        updateEgg e =
+          let pos = eggPos e
+              vel = eggVel e
+              bounds = eggBounds e
+              playerBoxes = map (boxAt <$> playerBounds <*> playerPos) $ players game
+              boxes = playerBoxes ++ walls game
+              Trace pos' _ = trace pos bounds vel boxes
+              vVel' = eggVVel e - 0.1
+              height' = eggHeight e + vVel'
+          in e { eggPos = pos'
+               , eggVVel = vVel'
+               , eggHeight = height'
+               }
 
 runRender :: GameState -> RenderChan -> IO ()
 runRender game chan =
   let ws = walls game
       ps = map ((,,) <$> playerName <*> playerPos <*> playerBounds) $ players game
-  in sendScene chan $ Scene ws ps
+      es = map ((,) <$> eggPos <*> eggBounds) $ eggs game
+  in sendScene chan $ Scene ws ps es
 
-calculateTrace :: GameState -> Player -> [(String, Pos)]
-calculateTrace game player =
+calculatePlayersSeen :: GameState -> Player -> [(String, Pos)]
+calculatePlayersSeen game player =
   let otherPlayers = filter (/= player) $ players game
       candidates = map ((,) <$> playerName <*> playerPos) otherPlayers
       pos = playerPos player
       ws = walls game
   in filter (\(_, pos') -> canSee pos' pos ws) candidates
+
+calculateEggsSeen :: GameState -> Player -> [Pos]
+calculateEggsSeen game player =
+  let candidates = map (eggPos) $ eggs game
+      pos = playerPos player
+      ws = walls game
+  in filter (\pos' -> canSee pos' pos ws) candidates
 
 runTrace :: GameState -> UTCTime -> IO GameState
 runTrace game t =
@@ -127,7 +178,8 @@ runTrace game t =
                           (players game)
        in do
          send (CurrentPos . playerPos) ps
-         send (CanSee . calculateTrace game) ps
+         send (PlayersSeen . calculatePlayersSeen game) ps
+         send (EggsSeen . calculateEggsSeen game) ps
          return game { players = players' }
   where send f ps = mapM_ (\p -> writeChan (playerChan p) (f p)) ps
         needsUpdate p = playerNextTrace p <= t

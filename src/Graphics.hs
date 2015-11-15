@@ -7,13 +7,13 @@ import Data.Maybe
 import System.IO
 import Physics
 
-data Scene = Scene [Box] [(String, Pos, Box)]
+data Scene = Scene [Box] [(String, Pos, Box)] [(Pos, Box)]
 
 data RenderChan = RenderChan (MVar Scene)
 
 newRenderChan :: IO RenderChan
 newRenderChan =
-  liftM RenderChan $ newMVar $ Scene [] []
+  liftM RenderChan $ newMVar $ Scene [] [] []
 
 sendScene :: RenderChan -> Scene -> IO ()
 sendScene (RenderChan var) msg =
@@ -30,11 +30,16 @@ playerString :: (String, Pos, Box) -> String
 playerString player =
   "Player " ++ show player
 
+eggString :: (Pos, Box) -> String
+eggString egg =
+  "Egg " ++ show egg
+
 renderScene :: Scene -> IO ()
-renderScene (Scene walls players) = do
+renderScene (Scene walls players eggs) = do
   putStrLn ":begin"
   mapM_ (putStrLn . wallString) walls
   mapM_ (putStrLn . playerString) players
+  mapM_ (putStrLn . eggString) eggs
   putStrLn ":end"
 
 renderMain :: RenderChan -> IO ()

@@ -38,13 +38,15 @@ runConnection (sock, addr) gameChan = do
     msg <- readChan playerChan
     case msg of
       CurrentPos pos -> hPutStrLn h $ "Current position " ++ show pos
-      CanSee others -> hPutStrLn h $ "Can see " ++ show others
+      PlayersSeen players -> hPutStrLn h $ "Can see players " ++ show players
+      EggsSeen eggs -> hPutStrLn h $ "Can see eggs " ++ show eggs
       Removed -> hClose h
 
   handle (\ex@(SomeException _) -> return ()) $ forever $ do
     cmd <- liftM maybeRead $ hGetLine h
     case cmd of
       Just (Move vel) -> writeChan gameChan $ MovePlayer name vel
+      Just (Throw vel) -> writeChan gameChan $ ThrowEgg name vel
       Nothing -> hPutStrLn h "Unknown command"
 
   killThread reader
