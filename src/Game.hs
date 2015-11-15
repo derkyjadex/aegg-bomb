@@ -15,6 +15,7 @@ data GameState = GameState { gameRunning :: Bool
                            , walls :: [Box]
                            , players :: [Player]
                            , eggs :: [Egg]
+                           , explosions :: [Explosion]
                            }
 
 data Player = Player { playerName :: String
@@ -33,6 +34,11 @@ data Egg = Egg { eggPlayer :: String
                , eggVVel :: Double
                , eggBounds :: Box
                }
+
+data Explosion = Explosion { explosionPos :: Pos
+                           , explosionT :: Double
+                           , explosionBounds :: Box
+                           }
 
 data GameMsg = Frame
              | Stop
@@ -62,6 +68,7 @@ newGame ws = GameState { gameRunning = True
                        , walls = ws
                        , players = []
                        , eggs = []
+                       , explosions = []
                        }
 
 zeroTime :: UTCTime
@@ -112,14 +119,10 @@ runInput chan game = do
     Frame -> return game
     _ -> runInput chan $ processInput msg game
 
-runPhysics :: GameState -> GameState
-runPhysics game =
-  let players' = map updatePlayer $ players game
-      eggs' = map updateEgg $ eggs game
-  in game { players = players'
-          , eggs = eggs'
-          }
-  where updatePlayer p =
+simulatePlayers :: GameState -> GameState
+simulatePlayers game =
+  game { players = map simulate $ players game }
+  where simulate p =
           let pos = playerPos p
               vel = playerVel p
               bounds = playerBounds p
@@ -128,26 +131,66 @@ runPhysics game =
               boxes = playersBoxes ++ walls game
               Trace pos' _ = trace pos bounds vel boxes
           in p { playerPos = pos' }
-        updateEgg e =
+
+simulateEggs :: GameState -> GameState
+simulateEggs game =
+  let results = map simulate $ eggs game
+      eggs' = catMaybes $ map fst results
+      newExplosions = catMaybes $ map snd results
+  in game { eggs = eggs'
+          , explosions = newExplosions ++ explosions game
+          }
+  where simulate e =
           let pos = eggPos e
               vel = eggVel e
               bounds = eggBounds e
               playerBoxes = map (boxAt <$> playerBounds <*> playerPos) $ players game
               boxes = playerBoxes ++ walls game
-              Trace pos' _ = trace pos bounds vel boxes
+              Trace pos' frac = trace pos bounds vel boxes
               vVel' = eggVVel e - 0.1
               height' = eggHeight e + vVel'
-          in e { eggPos = pos'
-               , eggVVel = vVel'
-               , eggHeight = height'
-               }
+              collided = frac < 1 || height' <= 0
+          in if collided
+             then ( Nothing
+                  , Just Explosion { explosionPos = pos'
+                                   , explosionT = 0
+                                   , explosionBounds = ((0, 0), (0, 0))
+                                   }
+                  )
+             else ( Just e { eggPos = pos'
+                           , eggVVel = vVel'
+                           , eggHeight = height'
+                           }
+                  , Nothing
+                  )
+
+simulateExplosions :: GameState -> GameState
+simulateExplosions game =
+  let results = map simulate $ explosions game
+      explosions' = catMaybes results
+  in game { explosions = explosions' }
+  where simulate e =
+          let pos = explosionPos e
+              t = explosionT e
+              s = 4 * t - 4 * t * t
+              bounds = ((-s, -s), (s, s))
+              t' = t + 0.01
+          in if t >= 1
+             then Nothing
+             else Just e { explosionT = t'
+                         , explosionBounds = bounds
+                         }
+
+runSimulation :: GameState -> GameState
+runSimulation = simulateExplosions . simulateEggs . simulatePlayers
 
 runRender :: GameState -> RenderChan -> IO ()
 runRender game chan =
   let ws = walls game
       ps = map ((,,) <$> playerName <*> playerPos <*> playerBounds) $ players game
       es = map ((,) <$> eggPos <*> eggBounds) $ eggs game
-  in sendScene chan $ Scene ws ps es
+      exs = map ((,) <$> explosionPos <*> explosionBounds) $ explosions game
+  in sendScene chan $ Scene ws ps es exs
 
 calculatePlayersSeen :: GameState -> Player -> [(String, Pos)]
 calculatePlayersSeen game player =
@@ -204,7 +247,7 @@ runGame chan renderChan game = do
 runGame' :: GameChan -> RenderChan -> GameState -> UTCTime -> IO ()
 runGame' chan renderChan game t0 = do
   writeChan chan Frame
-  game' <- runPhysics <$> runInput chan game
+  game' <- runSimulation <$> runInput chan game
   runRender game' renderChan
   game'' <- runTrace game' t0
   let t1 = addUTCTime targetFrameTime t0
