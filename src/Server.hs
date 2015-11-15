@@ -38,6 +38,7 @@ runConnection (sock, addr) gameChan = do
     msg <- readChan playerChan
     case msg of
       CurrentPos pos -> hPutStrLn h $ "Current position " ++ show pos
+      Health health -> hPutStrLn h $ "Health " ++ show health
       PlayersSeen players -> hPutStrLn h $ "Can see players " ++ show players
       EggsSeen eggs -> hPutStrLn h $ "Can see eggs " ++ show eggs
       Removed -> hClose h

@@ -24,6 +24,7 @@ data Player = Player { playerName :: String
                      , playerPos :: Pos
                      , playerVel :: Vec
                      , playerBounds :: Box
+                     , playerHealth :: Double
                      }
               deriving (Eq)
 
@@ -51,6 +52,7 @@ data GameMsg = Frame
 type GameChan = Chan GameMsg
 
 data PlayerMsg = CurrentPos Pos
+               | Health Double
                | PlayersSeen [(String, Pos)]
                | EggsSeen [Pos]
                | Removed
@@ -85,6 +87,7 @@ processInput (AddPlayer name chan) game =
                       , playerPos = (0, 0)
                       , playerVel = (0, 0)
                       , playerBounds = ((-0.5, -0.5), (0.5, 0.5))
+                      , playerHealth = 1
                       }
   in game { players = player : players game }
 
@@ -166,12 +169,14 @@ simulateEggs game =
 
 simulateExplosions :: GameState -> GameState
 simulateExplosions game =
-  let results = map simulate $ explosions game
-      explosions' = catMaybes results
-  in game { explosions = explosions' }
+  let explosions' = catMaybes $ map simulate $ explosions game
+      explosionBoxes = map (boxAt <$> explosionBounds <*> explosionPos) explosions'
+      players' = map (doDamage explosionBoxes) $ players game
+  in game { explosions = explosions'
+          , players = players'
+          }
   where simulate e =
-          let pos = explosionPos e
-              t = explosionT e
+          let t = explosionT e
               s = 4 * t - 4 * t * t
               bounds = ((-s, -s), (s, s))
               t' = t + 0.01
@@ -180,6 +185,12 @@ simulateExplosions game =
              else Just e { explosionT = t'
                          , explosionBounds = bounds
                          }
+        doDamage es p =
+          let box = (boxAt <$> playerBounds <*> playerPos) p
+              hits = length $ filter (boxesIntersect box) es
+              health = playerHealth p
+              health' = health - (fromIntegral hits) * 0.01
+          in p { playerHealth = health' }
 
 runSimulation :: GameState -> GameState
 runSimulation = simulateExplosions . simulateEggs . simulatePlayers
@@ -221,6 +232,7 @@ runTrace game t =
                           (players game)
        in do
          send (CurrentPos . playerPos) ps
+         send (Health . playerHealth) ps
          send (PlayersSeen . calculatePlayersSeen game) ps
          send (EggsSeen . calculateEggsSeen game) ps
          return game { players = players' }
