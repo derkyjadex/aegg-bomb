@@ -62,6 +62,52 @@ data PlayerCmd = Move Vec
                | Throw Vec
                deriving (Show, Read)
 
+-------------------------
+-- Constants
+-------------------------
+
+zeroTime :: UTCTime
+zeroTime = UTCTime (ModifiedJulianDay 0) (secondsToDiffTime 0)
+
+frameTime :: Double
+frameTime = 1 / 60 -- seconds
+
+playerTraceInterval :: NominalDiffTime
+playerTraceInterval = 1 / 2 -- seconds
+
+playerSize :: Box
+playerSize = ((-0.5, -0.5), (0.5, 0.5))
+
+eggSize :: Box
+eggSize = ((-0.25, -0.25), (0.25, 0.25))
+
+eggInitialVVel :: Double
+eggInitialVVel =
+  let v = 20 -- m/s
+  in v * frameTime
+
+eggGravity :: Double
+eggGravity =
+  let dv = 0.25 -- m/s^2
+  in dv * frameTime
+
+explosionSize :: Double
+explosionSize = 2
+
+explosionRate :: Double
+explosionRate =
+  let duration = 1.2 -- seconds
+  in frameTime / duration
+
+damageRate :: Double
+damageRate =
+  let dh = 0.2 -- /second
+  in dh * frameTime
+
+-------------------------
+-- Set up
+-------------------------
+
 newGameChan :: IO GameChan
 newGameChan = newChan
 
@@ -73,8 +119,9 @@ newGame ws = GameState { gameRunning = True
                        , explosions = []
                        }
 
-zeroTime :: UTCTime
-zeroTime = UTCTime (ModifiedJulianDay 0) (secondsToDiffTime 0)
+-------------------------
+-- Input
+-------------------------
 
 processInput :: GameMsg -> GameState -> GameState
 processInput Frame game = game
@@ -86,32 +133,34 @@ processInput (AddPlayer name chan) game =
                       , playerNextTrace = zeroTime
                       , playerPos = (0, 0)
                       , playerVel = (0, 0)
-                      , playerBounds = ((-0.5, -0.5), (0.5, 0.5))
+                      , playerBounds = playerSize
                       , playerHealth = 1
                       }
   in game { players = player : players game }
 
-processInput (MovePlayer name vel) game =
+processInput (MovePlayer name (dx, dy)) game =
   let players' = map (\p -> if playerName p == name
                             then updatePlayer p
                             else p) $ players game
   in game { players = players' }
   where updatePlayer p =
-          p { playerVel = vel }
+          let vel = (dx * frameTime, dy * frameTime)
+          in p { playerVel = vel }
 
 processInput (RemovePlayer name) game =
   let players' = filter ((name /=) . playerName) $ players game
   in game { players = players' }
 
-processInput (ThrowEgg owner vel) game =
+processInput (ThrowEgg owner (dx, dy)) game =
   fromMaybe game $ do
     player <- find ((owner ==) . playerName) $ players game
-    let egg = Egg { eggPlayer = owner
+    let vel = (dx * frameTime, dy * frameTime)
+        egg = Egg { eggPlayer = owner
                   , eggPos = playerPos player
                   , eggVel = vel
                   , eggHeight = 0
-                  , eggVVel = 1
-                  , eggBounds = ((-0.25, -0.25), (0.25, 0.25))
+                  , eggVVel = eggInitialVVel
+                  , eggBounds = eggSize
                   }
     return $ game { eggs = egg : eggs game }
 
@@ -121,6 +170,10 @@ runInput chan game = do
   case msg of
     Frame -> return game
     _ -> runInput chan $ processInput msg game
+
+-------------------------
+-- Simulation
+-------------------------
 
 simulatePlayers :: GameState -> GameState
 simulatePlayers game =
@@ -150,10 +203,9 @@ simulateEggs game =
               playerBoxes = map (boxAt <$> playerBounds <*> playerPos) $ players game
               boxes = playerBoxes ++ walls game
               Trace pos' frac = trace pos bounds vel boxes
-              vVel' = eggVVel e - 0.1
+              vVel' = eggVVel e - eggGravity
               height' = eggHeight e + vVel'
-              collided = frac < 1 || height' <= 0
-          in if collided
+          in if frac < 1 || height' <= 0
              then ( Nothing
                   , Just Explosion { explosionPos = pos'
                                    , explosionT = 0
@@ -177,9 +229,9 @@ simulateExplosions game =
           }
   where simulate e =
           let t = explosionT e
-              s = 4 * t - 4 * t * t
+              s = (2 * t - 2 * t * t) * explosionSize
               bounds = ((-s, -s), (s, s))
-              t' = t + 0.01
+              t' = t + explosionRate
           in if t >= 1
              then Nothing
              else Just e { explosionT = t'
@@ -189,11 +241,13 @@ simulateExplosions game =
           let box = (boxAt <$> playerBounds <*> playerPos) p
               hits = length $ filter (boxesIntersect box) es
               health = playerHealth p
-              health' = health - (fromIntegral hits) * 0.01
+              health' = health - (fromIntegral hits) * damageRate
           in p { playerHealth = health' }
 
 runSimulation :: GameState -> GameState
 runSimulation = simulateExplosions . simulateEggs . simulatePlayers
+
+-------------------------
 
 runRender :: GameState -> RenderChan -> IO ()
 runRender game chan =
@@ -202,6 +256,10 @@ runRender game chan =
       es = map ((,) <$> eggPos <*> eggBounds) $ eggs game
       exs = map ((,) <$> explosionPos <*> explosionBounds) $ explosions game
   in sendScene chan $ Scene ws ps es exs
+
+-------------------------
+-- Trace
+-------------------------
 
 calculatePlayersSeen :: GameState -> Player -> [(String, Pos)]
 calculatePlayersSeen game player =
@@ -225,7 +283,7 @@ runTrace game t =
     send (const Removed) $ players game
     return game
   else let ps = filter needsUpdate $ players game
-           nextTrace = addUTCTime playerTraceTime t
+           nextTrace = addUTCTime playerTraceInterval t
            players' = map (\p -> if needsUpdate p
                                  then p { playerNextTrace = nextTrace }
                                  else p)
@@ -239,11 +297,7 @@ runTrace game t =
   where send f ps = mapM_ (\p -> writeChan (playerChan p) (f p)) ps
         needsUpdate p = playerNextTrace p <= t
 
-targetFrameTime :: NominalDiffTime
-targetFrameTime = 1 / 60
-
-playerTraceTime :: NominalDiffTime
-playerTraceTime = 1 / 2
+-------------------------
 
 delayUntil :: UTCTime -> IO ()
 delayUntil end = do
@@ -262,6 +316,6 @@ runGame' chan renderChan game t0 = do
   game' <- runSimulation <$> runInput chan game
   runRender game' renderChan
   game'' <- runTrace game' t0
-  let t1 = addUTCTime targetFrameTime t0
+  let t1 = addUTCTime (realToFrac frameTime) t0
   delayUntil t1
   when (gameRunning game'') $ runGame' chan renderChan game'' t1
