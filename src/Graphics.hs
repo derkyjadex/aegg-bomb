@@ -7,7 +7,7 @@ import Data.Maybe
 import System.IO
 import Physics
 
-data Scene = Scene [Box] [(String, Pos, Box)] [(Pos, Box)] [(Pos, Box)]
+data Scene = Scene [Box] [(String, Pos, Box)] [(Pos, Box, Double)] [(Pos, Box)]
 
 data RenderChan = RenderChan (MVar Scene)
 
@@ -30,7 +30,7 @@ playerString :: (String, Pos, Box) -> String
 playerString player =
   "Player " ++ show player
 
-eggString :: (Pos, Box) -> String
+eggString :: (Pos, Box, Double) -> String
 eggString egg =
   "Egg " ++ show egg
 

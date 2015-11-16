@@ -253,7 +253,7 @@ runRender :: GameState -> RenderChan -> IO ()
 runRender game chan =
   let ws = walls game
       ps = map ((,,) <$> playerName <*> playerPos <*> playerBounds) $ players game
-      es = map ((,) <$> eggPos <*> eggBounds) $ eggs game
+      es = map ((,,) <$> eggPos <*> eggBounds <*> eggHeight) $ eggs game
       exs = map ((,) <$> explosionPos <*> explosionBounds) $ explosions game
   in sendScene chan $ Scene ws ps es exs
 
