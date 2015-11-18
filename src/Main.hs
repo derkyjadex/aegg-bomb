@@ -21,4 +21,5 @@ main =
      let game = newGame level
      _ <- forkIO $ runGame gameChan renderChan game
      _ <- forkIO $ runServer gameChan
+     _ <- forkIO $ runWebsocketServer renderChan
      renderMain renderChan

@@ -29,4 +29,7 @@ executable aegg-bomb
                      , network
                      , time
                      , pretty-show
+                     , bytestring
+                     , aeson
+                     , websockets
   default-language:    Haskell2010
