@@ -25,7 +25,7 @@ runAccept gameChan sock =
      forkIO $ runConnection gameChan conn
 
 runConnection :: GameChan -> (Socket, SockAddr) -> IO ()
-runConnection gameChan (sock,addr) =
+runConnection gameChan (sock,_) =
   do h <- socketToHandle sock ReadWriteMode
      hSetBuffering h NoBuffering
      hPutStrLn h "Hi, what's your name?"
@@ -43,7 +43,7 @@ runConnection gameChan (sock,addr) =
               hPutStrLn h $ "Can see players " ++ show players
             EggsSeen eggs -> hPutStrLn h $ "Can see eggs " ++ show eggs
             Removed -> hClose h
-     handle (\ex@(SomeException _) -> return ()) . forever $
+     handle (\(SomeException _) -> return ()) . forever $
        do cmd <- maybeRead <$> hGetLine h
           case cmd of
             Just (Move vel) -> writeChan gameChan $ MovePlayer name vel
