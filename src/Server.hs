@@ -7,6 +7,7 @@ import           Control.Monad
 import           Game
 import           Network.Socket
 import           System.IO
+import           Text.Printf
 
 runServer :: GameChan -> IO ()
 runServer gameChan =
@@ -30,7 +31,7 @@ runConnection gameChan (sock,addr) =
      hSetBuffering h NoBuffering
      hPutStrLn h "Hi, what's your name?"
      name <- hGetLine h
-     hPutStrLn h $ "Welcome, " ++ name ++ "!"
+     hPrintf h "Welcome, %s!\n" name
      playerChan <- newChan
      writeChan gameChan $ AddPlayer name playerChan
      reader <-
