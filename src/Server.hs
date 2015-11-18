@@ -1,7 +1,6 @@
 module Server (runServer) where
 
 import           Control.Concurrent
-import           Control.Concurrent.Chan
 import           Control.Exception
 import           Control.Monad
 import           Game

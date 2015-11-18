@@ -4,14 +4,11 @@ module Game
         PlayerCmd(..), GameChan)
        where
 
-import           Control.Applicative
 import           Control.Concurrent
-import           Control.Concurrent.Chan
 import           Control.Monad
 import           Data.List
 import           Data.Maybe
 import           Data.Time
-import           Data.Time.Calendar
 import           Graphics
 import           Physics
 

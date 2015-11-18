@@ -3,11 +3,7 @@ module Graphics
        where
 
 import           Control.Concurrent
-import           Control.Concurrent.MVar
-import           Control.Monad
-import           Data.Maybe
 import           Physics
-import           System.IO
 import           Text.Show.Pretty
 
 data Scene =
