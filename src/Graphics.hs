@@ -3,6 +3,7 @@ module Graphics
        where
 
 import           Control.Concurrent
+import           Control.Monad
 import           Physics
 import           Text.Show.Pretty
 
@@ -29,7 +30,6 @@ renderScene scene = putStrLn (ppShow scene)
 
 renderMain :: RenderChan -> IO ()
 renderMain chan =
-  do scene <- readScene chan
-     renderScene scene
-     threadDelay $ 500 * 1000
-     renderMain chan
+  forever $ do scene <- readScene chan
+               renderScene scene
+               threadDelay $ 500 * 1000
