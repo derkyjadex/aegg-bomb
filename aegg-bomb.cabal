@@ -28,4 +28,5 @@ executable aegg-bomb
   build-depends:       base
                      , network
                      , time
+                     , pretty-show
   default-language:    Haskell2010

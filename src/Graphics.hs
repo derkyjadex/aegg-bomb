@@ -8,6 +8,7 @@ import           Control.Monad
 import           Data.Maybe
 import           Physics
 import           System.IO
+import           Text.Show.Pretty
 
 data Scene =
   Scene {_walls      :: [Box]
@@ -27,26 +28,8 @@ sendScene (RenderChan var) = swapMVar var
 readScene :: RenderChan -> IO Scene
 readScene (RenderChan var) = readMVar var
 
-wallString :: Box -> String
-wallString wall = "Wall " ++ show wall
-
-playerString :: (String, Pos, Box) -> String
-playerString player = "Player " ++ show player
-
-eggString :: (Pos, Box, Double) -> String
-eggString egg = "Egg " ++ show egg
-
-explosionString :: (Pos, Box) -> String
-explosionString explosion = "Explosion " ++ show explosion
-
 renderScene :: Scene -> IO ()
-renderScene (Scene walls players eggs explosions) =
-  do putStrLn ":begin"
-     mapM_ (putStrLn . wallString) walls
-     mapM_ (putStrLn . playerString) players
-     mapM_ (putStrLn . eggString) eggs
-     mapM_ (putStrLn . explosionString) explosions
-     putStrLn ":end"
+renderScene scene = putStrLn (ppShow scene)
 
 renderMain :: RenderChan -> IO ()
 renderMain chan =
