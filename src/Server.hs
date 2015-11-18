@@ -45,7 +45,7 @@ runConnection gameChan (sock,addr) =
             EggsSeen eggs -> hPutStrLn h $ "Can see eggs " ++ show eggs
             Removed -> hClose h
      handle (\ex@(SomeException _) -> return ()) . forever $
-       do cmd <- liftM maybeRead $ hGetLine h
+       do cmd <- maybeRead <$> hGetLine h
           case cmd of
             Just (Move vel) -> writeChan gameChan $ MovePlayer name vel
             Just (Throw vel) -> writeChan gameChan $ ThrowEgg name vel

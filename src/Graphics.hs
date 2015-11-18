@@ -19,10 +19,10 @@ data Scene =
 data RenderChan = RenderChan (MVar Scene)
 
 newRenderChan :: IO RenderChan
-newRenderChan = liftM RenderChan . newMVar $ Scene [] [] [] []
+newRenderChan = RenderChan <$> newMVar (Scene [] [] [] [])
 
-sendScene :: RenderChan -> Scene -> IO ()
-sendScene (RenderChan var) msg = void (swapMVar var msg)
+sendScene :: RenderChan -> Scene -> IO Scene
+sendScene (RenderChan var) = swapMVar var
 
 readScene :: RenderChan -> IO Scene
 readScene (RenderChan var) = readMVar var

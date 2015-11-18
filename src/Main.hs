@@ -19,6 +19,6 @@ main =
   do gameChan <- newGameChan
      renderChan <- newRenderChan
      let game = newGame level
-     forkIO $ runGame gameChan renderChan game
-     forkIO $ runServer gameChan
+     _ <- forkIO $ runGame gameChan renderChan game
+     _ <- forkIO $ runServer gameChan
      renderMain renderChan

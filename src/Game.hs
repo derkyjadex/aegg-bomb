@@ -1,3 +1,4 @@
+{-# LANGUAGE RecordWildCards #-}
 module Game
        (newGameChan, runGame, newGame, GameMsg(..), PlayerMsg(..),
         PlayerCmd(..), GameChan)
@@ -258,14 +259,15 @@ runSimulation = simulateExplosions . simulateEggs . simulatePlayers
 
 -------------------------
 
-runRender :: GameState -> RenderChan -> IO ()
+runRender :: GameState -> RenderChan -> IO Scene
 runRender game chan =
-  let ws = walls game
-      ps =
+  let _walls = walls game
+      _players =
         map ((,,) <$> playerName <*> playerPos <*> playerBounds) $ players game
-      es = map ((,,) <$> eggPos <*> eggBounds <*> eggHeight) $ eggs game
-      exs = map ((,) <$> explosionPos <*> explosionBounds) $ explosions game
-  in sendScene chan $ Scene ws ps es exs
+      _eggs = map ((,,) <$> eggPos <*> eggBounds <*> eggHeight) $ eggs game
+      _explosions =
+        map ((,) <$> explosionPos <*> explosionBounds) $ explosions game
+  in sendScene chan Scene {..}
 
 -------------------------
 -- Trace
@@ -327,7 +329,7 @@ runGame' :: GameChan -> RenderChan -> GameState -> UTCTime -> IO ()
 runGame' chan renderChan game t0 =
   do writeChan chan Frame
      game' <- runSimulation <$> runInput chan game
-     runRender game' renderChan
+     _ <- runRender game' renderChan
      game'' <- runTrace game' t0
      let t1 =
            addUTCTime (realToFrac frameTime)
