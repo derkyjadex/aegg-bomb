@@ -31,7 +31,6 @@ decodePlayer : Decoder Player
 decodePlayer =
   tuple3 Player string decodePosition decodeBox
 
-
 decodeScene : Decoder Scene
 decodeScene =
   object2 Scene

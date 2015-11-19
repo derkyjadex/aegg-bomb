@@ -11,7 +11,7 @@ init =
 update : Action -> Model -> Model
 update action model =
   case action of
-    NewScene scene -> {model | scene <- Just scene}
+    NewScene scene -> {model | scene = Just scene}
 
 effect : Action -> Model -> Effects Action
 effect action model = none
