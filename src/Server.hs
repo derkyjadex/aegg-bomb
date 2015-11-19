@@ -44,11 +44,11 @@ runConnection gameChan (sock,_) =
             EggsSeen eggs -> hPutStrLn h $ "Can see eggs " ++ show eggs
             Removed -> hClose h
      handle (\(SomeException _) -> return ()) . forever $
-       do cmd <- maybeRead <$> hGetLine h
-          case cmd of
+       do cmd <- hGetLine h
+          case maybeRead cmd of
             Just (Move vel) -> writeChan gameChan $ MovePlayer name vel
             Just (Throw vel) -> writeChan gameChan $ ThrowEgg name vel
-            Nothing -> hPutStrLn h "Unknown command"
+            Nothing -> hPrintf h "Unknown command: '%s'\n" cmd
      killThread reader
      writeChan gameChan $ RemovePlayer name
      hClose h
