@@ -28,34 +28,34 @@ sendScene (RenderChan var) = swapMVar var
 readScene :: RenderChan -> IO Scene
 readScene (RenderChan var) = readMVar var
 
+origin :: (Double, Double)
+origin = (0, 0)
+
 wallJson :: Box -> Value
 wallJson wall =
-  Object $ fromList [ ("type", "wall")
-                    , ("bounds", toJSON wall)
-                    ]
+  Object $
+  fromList [("type","wall"),("pos",toJSON origin),("bounds",toJSON wall)]
 
 playerJson :: (String, Pos, Box) -> Value
-playerJson (name, pos, bounds) =
-  Object $ fromList [ ("type", "player")
-                    , ("name", toJSON name)
-                    , ("pos", toJSON pos)
-                    , ("bounds", toJSON bounds)
-                    ]
+playerJson (name,pos,bounds) =
+  Object $
+  fromList [("type","player")
+           ,("pos",toJSON pos)
+           ,("bounds",toJSON bounds)
+           ,("name",toJSON name)]
 
 eggJson :: (Pos, Box, Double) -> Value
-eggJson (pos, bounds, height) =
-  Object $ fromList [ ("type", "egg")
-                    , ("pos", toJSON pos)
-                    , ("bounds", toJSON bounds)
-                    , ("height", toJSON height)
-                    ]
+eggJson (pos,bounds,height) =
+  Object $
+  fromList [("type","egg")
+           ,("pos",toJSON pos)
+           ,("bounds",toJSON bounds)
+           ,("height",toJSON height)]
 
 explosionJson :: (Pos, Box) -> Value
-explosionJson (pos, bounds) =
-  Object $ fromList [ ("type", "explosion")
-                    , ("pos", toJSON pos)
-                    , ("bounds", toJSON bounds)
-                    ]
+explosionJson (pos,bounds) =
+  Object $
+  fromList [("type","explosion"),("pos",toJSON pos),("bounds",toJSON bounds)]
 
 sceneJson :: Scene -> Value
 sceneJson (Scene walls players eggs explosions) =
