@@ -33,6 +33,5 @@ executable aegg-bomb
                      , unordered-containers
                      , vector
                      , text
-                     , bytestring
                      , websockets
   default-language:    Haskell2010
