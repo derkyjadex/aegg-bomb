@@ -61,25 +61,52 @@ This is still very much a work-in-progress and precisely all the details are sub
 
 ## Connect As A Renderer
 
-The render output is currently written to `stdout`. This will change to also be available over a TCP port and WebSockets.
+The render output is sent over WebSockets. The server runs on port 2424. Each message sent to the client is a JSON array containing a list of objects in the scene.
 
-Currently the output looks something like the following, with every object in the scene written out:
+Each object has `type`, `pos` and `bounds` properties. For example:
 
+```json
+{
+  "type": "player",
+  "pos": [32.5, -46.7],
+  "bounds": [[-0.5, -0.5], [0.5, 0.5]]
+}
 ```
-Scene
-  { _walls =
-      [ ( ( -11.0 , -11.0 ) , ( -10.0 , 10.0 ) )
-      , ( ( -11.0 , 10.0 ) , ( 10.0 , 11.0 ) )
-      , ( ( 10.0 , -10.0 ) , ( 11.0 , 11.0 ) )
-      , ( ( -10.0 , -11.0 ) , ( 11.0 , -10.0 ) )
-      , ( ( -6.0 , -6.0 ) , ( -5.0 , 6.0 ) )
-      ]
-  , _players = []
-  , _eggs = []
-  , _explosions = []
+
+The `pos` contains the `x` and `y` coordinates of the object, the `bounds` contains the minimum and maximum coordinates of the axis-aligned bounding box around the object, relative to `pos`. Some objects contain further properties which can be used to make the rendered output more interesting.
+
+A full message looks something like the following (once nice formatting has been applied):
+
+```json
+[
+  { "type": "wall", "pos": [0.0, 0.0], "bounds": [[-11, -11], [-10, 10]] },
+  { "type": "wall", "pos": [0.0, 0.0], "bounds": [[-11, 10], [10, 11]] },
+  { "type": "wall", "pos": [0.0, 0.0], "bounds": [[10, -10], [11, 11]] },
+  { "type": "wall", "pos": [0.0, 0.0], "bounds": [[-10, -11], [11, -10]] },
+  { "type": "wall", "pos": [0.0, 0.0], "bounds": [[-6, -6], [-5, 6]] },
+  {
+    "type": "player",
+    "pos": [3.19999, 6.39999],
+    "bounds": [[-0.5, -0.5], [0.5, 0.5]],
+    "name": "alice"
+  },
+  {
+    "type": "egg",
+    "pos": [-2.40000, 2.66666],
+    "bounds": [[-0.25, -0.25], [0.25, 0.25]],
+    "height": 10.96666
+  },
+  {
+    "type": "explosion",
+    "pos": [-4.74999, 1.09999],
+    "bounds": [[-0.95061, -0.95061], [0.95061, 0.95061]]
   }
+]
 ```
+
+`wscat` is a useful tool for debugging this.
+
 
 ## License
 
-Copyright 2015 James Deery. Distributed under the MIT license, see LICENSE for details.
+Copyright 2015 James Deery, Kris Jenkins. Distributed under the MIT license, see LICENSE for details.
