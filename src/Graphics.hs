@@ -6,8 +6,8 @@ module Graphics
 import           Control.Concurrent
 import           Control.Monad
 import           Data.Aeson
-import qualified Data.ByteString.Lazy as B
-import           Data.HashMap.Strict
+import           Data.HashMap.Strict  (fromList)
+import qualified Network.WebSockets   as WS
 import           Physics
 
 data Scene =
@@ -65,15 +65,19 @@ sceneJson (Scene walls players eggs explosions) =
   fmap eggJson eggs ++
   fmap explosionJson explosions
 
-renderScene :: Scene -> IO ()
-renderScene scene = do
-  putStrLn ":begin"
-  B.putStr $ encode $ sceneJson scene
-  putStrLn ""
-  putStrLn ":end"
+runConnection :: RenderChan -> WS.Connection -> IO ()
+runConnection chan conn =
+  forever $
+  do scene <- readScene chan
+     WS.sendTextData conn $ encode $ sceneJson scene
+     threadDelay (500 * 1000)
+
+runWebsocket :: RenderChan -> WS.ServerApp
+runWebsocket chan pending =
+  do conn <- WS.acceptRequest pending
+     WS.forkPingThread conn 30
+     runConnection chan conn
 
 renderMain :: RenderChan -> IO ()
 renderMain chan =
-  forever $ do scene <- readScene chan
-               renderScene scene
-               threadDelay $ 500 * 1000
+  WS.runServer "0.0.0.0" 2424 $ runWebsocket chan
