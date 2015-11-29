@@ -33,12 +33,28 @@ renderPlayer player =
   |> moveRect player.box
   |> move player.position
 
+renderEgg : Egg -> Form
+renderEgg egg =
+  boxToRect egg.box
+  |> filled yellow
+  |> moveRect egg.box
+  |> move egg.position
+
+renderExplosion : Explosion -> Form
+renderExplosion explosion =
+  boxToRect explosion.box
+  |> filled orange
+  |> moveRect explosion.box
+  |> move explosion.position
+
 
 renderScene : Scene -> Element
 renderScene scene =
   let walls = List.map renderWall scene.walls
       players = List.map renderPlayer scene.players
-      all = group (walls ++ players)
+      eggs = List.map renderEgg scene.eggs
+      explosions = List.map renderExplosion scene.explosions
+      all = group (walls ++ players ++ eggs ++ explosions)
             |> scale 6
   in collage 800 300 [all]
 

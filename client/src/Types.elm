@@ -15,9 +15,19 @@ type alias Player =
   ,position : Position
   ,box : Box}
 
+type alias Egg =
+  {position : Position
+  ,box : Box}
+
+type alias Explosion =
+  {position : Position
+  ,box : Box}
+
 type alias Scene =
   {walls : List Wall
-  ,players : List Player}
+  ,players : List Player
+  ,eggs : List Egg
+  ,explosions : List Explosion}
 
 type alias Model =
   {scene : Maybe (Result String Scene)}
@@ -44,8 +54,22 @@ decodePlayer =
     ("pos" := decodePosition)
     ("bounds" := decodeBox)
 
+decodeEgg : Decoder Egg
+decodeEgg =
+  object2 Egg
+    ("pos" := decodePosition)
+    ("bounds" := decodeBox)
+
+decodeExplosion : Decoder Explosion
+decodeExplosion =
+  object2 Explosion
+    ("pos" := decodePosition)
+    ("bounds" := decodeBox)
+
 decodeScene : Decoder Scene
 decodeScene =
-  object2 Scene
+  object4 Scene
     ("walls" := list decodeWall)
     ("players" := list decodePlayer)
+    ("eggs" := list decodeEgg)
+    ("explosions" := list decodeExplosion)

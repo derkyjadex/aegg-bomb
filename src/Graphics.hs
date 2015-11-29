@@ -44,8 +44,8 @@ eggJson (pos,bounds,height) =
   object ["pos" .= pos,"bounds" .= bounds,"height" .= height]
 
 explosionJson :: (Pos, Box) -> Value
-explosionJson (pos,box) =
-  object ["pos" .= pos,"box" .= box]
+explosionJson (pos,bounds) =
+  object ["pos" .= pos,"bounds" .= bounds]
 
 sceneJson :: Scene -> Value
 sceneJson (Scene walls players eggs explosions) =
