@@ -55,8 +55,8 @@ renderScene scene =
       eggs = List.map renderEgg scene.eggs
       explosions = List.map renderExplosion scene.explosions
       all = group (walls ++ players ++ eggs ++ explosions)
-            |> scale 10
-  in collage 800 300 [all]
+            |> scale 14
+  in collage 800 500 [all]
 
 root : Address Action -> Model -> Html
 root address model =
