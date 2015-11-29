@@ -61,47 +61,51 @@ This is still very much a work-in-progress and precisely all the details are sub
 
 ## Connect As A Renderer
 
-The render output is sent over WebSockets. The server runs on port 2424. Each message sent to the client is a JSON array containing a list of objects in the scene.
+The render output is sent over WebSockets. The server runs on port 2424. Each message sent to the client is a JSON object containing lists for each type of object in the scene.
 
-Each object has `type`, `pos` and `bounds` properties. For example:
+There are currently four types of object: `walls`, `players`, `eggs` and `explosions`. Each object has `pos` and `bounds` properties. The `pos` contains the `x` and `y` coordinates of the object, the `bounds` contains the minimum and maximum coordinates of the axis-aligned bounding box around the object, relative to `pos`.
 
 ```json
 {
-  "type": "player",
   "pos": [32.5, -46.7],
   "bounds": [[-0.5, -0.5], [0.5, 0.5]]
 }
 ```
 
-The `pos` contains the `x` and `y` coordinates of the object, the `bounds` contains the minimum and maximum coordinates of the axis-aligned bounding box around the object, relative to `pos`. Some objects contain further properties which can be used to make the rendered output more interesting.
+Some objects contain further properties which can be used to make the rendered output more interesting.
 
 A full message looks something like the following (once nice formatting has been applied):
 
 ```json
-[
-  { "type": "wall", "pos": [0.0, 0.0], "bounds": [[-11, -11], [-10, 10]] },
-  { "type": "wall", "pos": [0.0, 0.0], "bounds": [[-11, 10], [10, 11]] },
-  { "type": "wall", "pos": [0.0, 0.0], "bounds": [[10, -10], [11, 11]] },
-  { "type": "wall", "pos": [0.0, 0.0], "bounds": [[-10, -11], [11, -10]] },
-  { "type": "wall", "pos": [0.0, 0.0], "bounds": [[-6, -6], [-5, 6]] },
-  {
-    "type": "player",
-    "pos": [3.19999, 6.39999],
-    "bounds": [[-0.5, -0.5], [0.5, 0.5]],
-    "name": "alice"
-  },
-  {
-    "type": "egg",
-    "pos": [-2.40000, 2.66666],
-    "bounds": [[-0.25, -0.25], [0.25, 0.25]],
-    "height": 10.96666
-  },
-  {
-    "type": "explosion",
-    "pos": [-4.74999, 1.09999],
-    "bounds": [[-0.95061, -0.95061], [0.95061, 0.95061]]
-  }
-]
+{
+  "walls": [
+    { "pos": [0.0, 0.0], "bounds": [[-11, -11], [-10, 10]] },
+    { "pos": [0.0, 0.0], "bounds": [[-11, 10], [10, 11]] },
+    { "pos": [0.0, 0.0], "bounds": [[10, -10], [11, 11]] },
+    { "pos": [0.0, 0.0], "bounds": [[-10, -11], [11, -10]] },
+    { "pos": [0.0, 0.0], "bounds": [[-6, -6], [-5, 6]] }
+  ],
+  "players": [
+    {
+      "name": "Alice",
+      "pos": [9.5, 3.7999],
+      "bounds": [[-0.5, -0.5], [0.5, 0.5]]
+    }
+  ],
+  "eggs": [
+    {
+      "pos": [6.7499, 4.8999],
+      "bounds": [[-0.25, -0.25], [0.25, 0.25]],
+      "height": 8.6625
+    }
+  ],
+  "explosions": [
+    {
+      "pos": [-3.7500, 9.0999],
+      "box": [[-0.5918, -0.5918], [0.5918, 0.5918]]
+    }
+  ]
+}
 ```
 
 `wscat` is a useful tool for debugging this.

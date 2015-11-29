@@ -6,8 +6,8 @@ module Graphics
 import           Control.Concurrent
 import           Control.Monad
 import           Data.Aeson
-import           Data.HashMap.Strict  (fromList)
-import qualified Network.WebSockets   as WS
+import           GHC.Generics
+import qualified Network.WebSockets as WS
 import           Physics
 
 data Scene =
@@ -33,37 +33,26 @@ origin = (0, 0)
 
 wallJson :: Box -> Value
 wallJson wall =
-  Object $
-  fromList [("type","wall"),("pos",toJSON origin),("bounds",toJSON wall)]
+  object ["pos" .= origin,"bounds" .= wall]
 
 playerJson :: (String, Pos, Box) -> Value
 playerJson (name,pos,bounds) =
-  Object $
-  fromList [("type","player")
-           ,("pos",toJSON pos)
-           ,("bounds",toJSON bounds)
-           ,("name",toJSON name)]
+  object ["pos" .= pos,"bounds" .= bounds,"name" .= name]
 
-eggJson :: (Pos, Box, Double) -> Value
+eggJson :: (Pos,Box,Double) -> Value
 eggJson (pos,bounds,height) =
-  Object $
-  fromList [("type","egg")
-           ,("pos",toJSON pos)
-           ,("bounds",toJSON bounds)
-           ,("height",toJSON height)]
+  object ["pos" .= pos,"bounds" .= bounds,"height" .= height]
 
 explosionJson :: (Pos, Box) -> Value
-explosionJson (pos,bounds) =
-  Object $
-  fromList [("type","explosion"),("pos",toJSON pos),("bounds",toJSON bounds)]
+explosionJson (pos,box) =
+  object ["pos" .= pos,"box" .= box]
 
 sceneJson :: Scene -> Value
 sceneJson (Scene walls players eggs explosions) =
-  toJSON $
-  fmap wallJson walls ++
-  fmap playerJson players ++
-  fmap eggJson eggs ++
-  fmap explosionJson explosions
+  object ["walls" .= fmap wallJson walls
+         ,"players" .= fmap playerJson players
+         ,"eggs" .= fmap eggJson eggs
+         ,"explosions" .= fmap explosionJson explosions]
 
 runConnection :: RenderChan -> WS.Connection -> IO ()
 runConnection chan conn =

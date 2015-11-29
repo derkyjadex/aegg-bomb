@@ -27,12 +27,19 @@ decodePosition = tuple2 (,) float float
 decodeBox : Decoder Box
 decodeBox = tuple2 (,) decodePosition decodePosition
 
+decodeWall : Decoder Box
+decodeWall =
+  "bounds" := decodeBox
+
 decodePlayer : Decoder Player
 decodePlayer =
-  tuple3 Player string decodePosition decodeBox
+  object3 Player
+    ("name" := string)
+    ("pos" := decodePosition)
+    ("bounds" := decodeBox)
 
 decodeScene : Decoder Scene
 decodeScene =
   object2 Scene
-    ("_walls" := list decodeBox)
-    ("_players" := list decodePlayer)
+    ("walls" := list decodeWall)
+    ("players" := list decodePlayer)
