@@ -8,19 +8,29 @@ import Graphics.Element exposing (Element,container,middle)
 import Color exposing (..)
 
 boxToRect : Box -> Shape
-boxToRect ((x1,y1), (x2,y2)) =
-  rect (x2 - x1) (y2 - y1)
+boxToRect ((minX,minY), (maxX,maxY)) =
+  rect (maxX - minX) (maxY - minY)
 
-renderWall : Box -> Form
-renderWall box =
-  boxToRect box
+moveRect : Box -> Form -> Form
+moveRect ((minX, minY), (maxX, maxY)) =
+  let w = maxX - minX
+      h = maxY - minY
+      x = (w / 2) + minX
+      y = (h / 2) + minY
+  in move (x, y)
+
+renderWall : Wall -> Form
+renderWall wall =
+  boxToRect wall.box
   |> filled darkRed
-  |> move (fst box)
+  |> moveRect wall.box
+  |> move wall.position
 
 renderPlayer : Player -> Form
 renderPlayer player =
   boxToRect player.box
   |> filled darkBlue
+  |> moveRect player.box
   |> move player.position
 
 

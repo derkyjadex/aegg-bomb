@@ -6,13 +6,17 @@ type alias Box = (Position, Position)
 
 type alias Position = (Float, Float)
 
+type alias Wall =
+  {position : Position
+  ,box : Box}
+
 type alias Player =
   {name : String
   ,position : Position
   ,box : Box}
 
 type alias Scene =
-  {walls : List Box
+  {walls : List Wall
   ,players : List Player}
 
 type alias Model =
@@ -27,9 +31,11 @@ decodePosition = tuple2 (,) float float
 decodeBox : Decoder Box
 decodeBox = tuple2 (,) decodePosition decodePosition
 
-decodeWall : Decoder Box
+decodeWall : Decoder Wall
 decodeWall =
-  "bounds" := decodeBox
+  object2 Wall
+    ("pos" := decodePosition)
+    ("bounds" := decodeBox)
 
 decodePlayer : Decoder Player
 decodePlayer =
