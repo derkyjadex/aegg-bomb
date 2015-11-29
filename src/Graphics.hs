@@ -59,7 +59,7 @@ runConnection chan conn =
   forever $
   do scene <- readScene chan
      WS.sendTextData conn $ encode $ sceneJson scene
-     threadDelay (500 * 1000)
+     threadDelay (100 * 1000)
 
 runWebsocket :: RenderChan -> WS.ServerApp
 runWebsocket chan pending =

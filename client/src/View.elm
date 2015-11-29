@@ -55,18 +55,18 @@ renderScene scene =
       eggs = List.map renderEgg scene.eggs
       explosions = List.map renderExplosion scene.explosions
       all = group (walls ++ players ++ eggs ++ explosions)
-            |> scale 6
+            |> scale 10
   in collage 800 300 [all]
 
 root : Address Action -> Model -> Html
 root address model =
   div []
       [h1 []
-          [Html.text "Egg"]
-      ,div []
-           [code []
-                 [Html.text <| toString model]]
+          [Html.text "Ægg Bomb"]
       ,case model.scene of
         Just (Ok scene) -> fromElement (renderScene scene)
         Just (Err e) -> Html.text ("ERROR: " ++ e)
-        Nothing -> Html.text "Waiting for data..."]
+        Nothing -> Html.text "Waiting for data..."
+      ,div []
+           [code []
+                 [Html.text <| toString model]]]
