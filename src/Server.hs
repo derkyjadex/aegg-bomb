@@ -10,14 +10,16 @@ import           Text.Printf
 
 runServer :: GameChan -> IO ()
 runServer gameChan =
-  bracket (socket AF_INET Stream 0)
-          close
-          (\sock ->
-             do setSocketOption sock ReuseAddr 1
-                bindSocket sock
-                           (SockAddrInet 4242 iNADDR_ANY)
-                listen sock 2
-                forever $ runAccept gameChan sock)
+  let port = 4242
+  in bracket (do printf "Running client server on port: %s\n" (show port)
+                 socket AF_INET Stream 0)
+             close
+             (\sock ->
+                do setSocketOption sock ReuseAddr 1
+                   bindSocket sock
+                              (SockAddrInet port iNADDR_ANY)
+                   listen sock 2
+                   forever $ runAccept gameChan sock)
 
 runAccept :: GameChan -> Socket -> IO ThreadId
 runAccept gameChan sock =

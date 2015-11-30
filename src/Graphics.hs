@@ -9,6 +9,7 @@ import           Data.Aeson
 import           GHC.Generics
 import qualified Network.WebSockets as WS
 import           Physics
+import           Text.Printf
 
 data Scene =
   Scene {_walls      :: [Box]
@@ -69,4 +70,6 @@ runWebsocket chan pending =
 
 renderMain :: RenderChan -> IO ()
 renderMain chan =
-  WS.runServer "0.0.0.0" 2424 $ runWebsocket chan
+  let (address,port) = ("0.0.0.0",2424)
+  in do printf "Running display server on: %s:%d\n" address port
+        WS.runServer address port $ runWebsocket chan
