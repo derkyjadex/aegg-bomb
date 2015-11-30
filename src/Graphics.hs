@@ -6,7 +6,6 @@ module Graphics
 import           Control.Concurrent
 import           Control.Monad
 import           Data.Aeson
-import           GHC.Generics
 import qualified Network.WebSockets as WS
 import           Physics
 import           Text.Printf
