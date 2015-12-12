@@ -19,7 +19,8 @@ type ObjectId = Int
 data GameState =
   GameState {gameRunning :: Bool
             ,walls       :: [Box]
-            ,objects     :: Map ObjectId GameObject}
+            ,objects     :: Map ObjectId GameObject
+            ,traceQueue  :: [(UTCTime,ObjectId)]}
 
 data GameObject
   = PlayerObj Player
@@ -29,7 +30,6 @@ data GameObject
 data Player =
   Player {playerName      :: String
          ,playerChan      :: Chan PlayerMsg
-         ,playerNextTrace :: UTCTime
          ,playerPos       :: Pos
          ,playerVel       :: Vec
          ,playerBounds    :: Box
@@ -131,7 +131,8 @@ newGame :: [Box] -> GameState
 newGame ws =
   GameState {gameRunning = True
             ,walls = ws
-            ,objects = Map.empty}
+            ,objects = Map.empty
+            ,traceQueue = []}
 
 -------------------------
 -- Modify
@@ -142,7 +143,7 @@ getObject objectId =
   do game <- get
      return $ Map.lookup objectId (objects game)
 
-addObject :: GameObject -> State GameState ()
+addObject :: GameObject -> State GameState ObjectId
 addObject object =
   do game <- get
      let objs = objects game
@@ -155,6 +156,7 @@ addObject object =
            Map.insert nextId object objs
          game' = game {objects = objects'}
      put game'
+     return nextId
 
 removeObject :: ObjectId -> State GameState ()
 removeObject objectId =
@@ -193,6 +195,13 @@ updateObjects update =
 gameWalls :: State GameState [Box]
 gameWalls = walls <$> get
 
+getPlayer :: ObjectId -> State GameState (Maybe Player)
+getPlayer playerId =
+  do objs <- objects <$> get
+     return $ Map.lookup playerId objs >>= getPlayer
+  where getPlayer (PlayerObj player) = Just player
+        getPlayer _ = Nothing
+
 gamePlayers :: State GameState [(ObjectId,Player)]
 gamePlayers =
   do objs <- objects <$> get
@@ -220,6 +229,10 @@ getPlayerId name =
      let result = listToMaybe $ filter ((name ==) . playerName . snd) players
      return $ fst <$> result
 
+addToTraceQueue :: ObjectId -> UTCTime -> State GameState ()
+addToTraceQueue objectId time =
+  modify (\game -> game {traceQueue = (time,objectId) : (traceQueue game)})
+
 -------------------------
 -- Input
 -------------------------
@@ -233,12 +246,12 @@ processInput (AddPlayer name chan) =
   let player =
         Player {playerName = name
                ,playerChan = chan
-               ,playerNextTrace = zeroTime
                ,playerPos = (0,0)
                ,playerVel = (0,0)
                ,playerBounds = playerSize
                ,playerHealth = 1}
-  in addObject (PlayerObj player)
+  in do playerId <- addObject (PlayerObj player)
+        addToTraceQueue playerId zeroTime
 
 processInput (MovePlayer name (dx,dy)) =
   do Just playerId <- getPlayerId name
@@ -262,6 +275,7 @@ processInput (ThrowEgg owner (dx,dy)) =
                    ,eggVVel = eggInitialVVel
                    ,eggBounds = eggSize}
      addObject $ EggObj egg
+     return ()
 
 runInput :: GameChan -> GameState -> IO GameState
 runInput chan game =
@@ -276,12 +290,13 @@ runInput chan game =
 
 startExplosion :: Pos -> State GameState ()
 startExplosion pos =
-  let explosion =
-        Explosion {explosionPos = pos
-                  ,explosionT = 0
-                  ,explosionBounds =
-                     ((0,0),(0,0))}
-  in addObject $ ExplosionObj explosion
+  do let explosion =
+           Explosion {explosionPos = pos
+                     ,explosionT = 0
+                     ,explosionBounds =
+                        ((0,0),(0,0))}
+     addObject $ ExplosionObj explosion
+     return ()
 
 damagePlayer :: ObjectId -> Double -> State GameState ()
 damagePlayer playerId damage =
@@ -384,8 +399,8 @@ toScene game =
 
 calculatePlayersSeen :: GameState -> Player -> [(String, Pos)]
 calculatePlayersSeen game player =
-  let players = evalState gamePlayers game
-      otherPlayers = filter (/= player) $ Map.elems players
+  let players = snd <$> evalState gamePlayers game
+      otherPlayers = filter (/= player) players
       candidates = map ((,) <$> playerName <*> playerPos) otherPlayers
       pos = playerPos player
       ws = walls game
@@ -393,12 +408,11 @@ calculatePlayersSeen game player =
 
 calculateEggsSeen :: GameState -> Player -> [Pos]
 calculateEggsSeen game player =
-  let eggs = evalState gameEggs game
-      candidates = eggPos <$> Map.elems eggs
+  let eggs = snd <$> evalState gameEggs game
+      candidates = eggPos <$> eggs
       pos = playerPos player
       ws = walls game
   in filter (\pos' -> canSee pos' pos ws) candidates
-
 
 sendTrace :: GameState -> Player -> IO ()
 sendTrace game player =
@@ -408,25 +422,32 @@ sendTrace game player =
      send (EggsSeen . calculateEggsSeen game)
   where send f = writeChan (playerChan player) (f player)
 
+sendRemoved :: Player -> IO ()
+sendRemoved player =
+  writeChan (playerChan player) Removed
+
+runTraceQueue :: UTCTime -> State GameState [Player]
+runTraceQueue t =
+  do game <- get
+     let (update, keep) = partition needsTrace (traceQueue game)
+         updateIds = snd <$> update
+     players <- mapM getPlayer updateIds
+     let validIds = fst <$> filter (isJust . snd) (zip updateIds players)
+         newEntries = map ((,) newTime) validIds
+     put game {traceQueue = keep ++ newEntries}
+     return $ catMaybes players
+  where needsTrace (time,_) = time <= t
+        newTime = addUTCTime playerTraceInterval t
+
 runTrace :: GameState -> UTCTime -> IO GameState
 runTrace game t =
   if not $ gameRunning game
-     then do send (const Removed) players
+     then do let players = snd <$> evalState gamePlayers game
+             forM_ players sendRemoved
              return game
-     else let ps = filter needsUpdate $ Map.elems $ players game
-              nextTrace =
-                addUTCTime playerTraceInterval t
-              players' =
-                Map.map (\p ->
-                       if needsUpdate p
-                          then p {playerNextTrace = nextTrace}
-                          else p)
-                    players
-          in do mapM_ (sendTrace game) ps
-                return game {players = players'}
-  where players = evalState gamePlayers game
-        needsUpdate p = playerNextTrace p <= t
-
+     else do let (players,game') = runState (runTraceQueue t) game
+             forM_ players (sendTrace game')
+             return game'
 
 -------------------------
 
@@ -447,9 +468,9 @@ runGame' chan renderChan game t0 =
      afterInput <- runInput chan game
      let game' = execState runSimulation afterInput
      _ <- sendScene renderChan (toScene game')
-     --game'' <- runTrace game' t0
+     game'' <- runTrace game' t0
      let t1 =
            addUTCTime (realToFrac frameTime)
                       t0
      delayUntil t1
-     when (gameRunning game') $ runGame' chan renderChan game' t1
+     when (gameRunning game'') $ runGame' chan renderChan game'' t1
