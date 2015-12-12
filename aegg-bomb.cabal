@@ -34,4 +34,6 @@ executable aegg-bomb
                      , vector
                      , text
                      , websockets
+                     , mtl
+                     , containers
   default-language:    Haskell2010

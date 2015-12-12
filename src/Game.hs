@@ -5,18 +5,26 @@ module Game
 
 import           Control.Concurrent
 import           Control.Monad
+import           Control.Monad.State
 import           Data.List
 import           Data.Maybe
 import           Data.Time
 import           Graphics
 import           Physics
+import           Data.Map.Strict (Map)
+import qualified Data.Map.Strict as Map
+
+type ObjectId = Int
 
 data GameState =
   GameState {gameRunning :: Bool
             ,walls       :: [Box]
-            ,players     :: [Player]
-            ,eggs        :: [Egg]
-            ,explosions  :: [Explosion]}
+            ,objects     :: Map ObjectId GameObject}
+
+data GameObject
+  = PlayerObj Player
+  | EggObj Egg
+  | ExplosionObj Explosion
 
 data Player =
   Player {playerName      :: String
@@ -123,19 +131,105 @@ newGame :: [Box] -> GameState
 newGame ws =
   GameState {gameRunning = True
             ,walls = ws
-            ,players = []
-            ,eggs = []
-            ,explosions = []}
+            ,objects = Map.empty}
+
+-------------------------
+-- Modify
+-------------------------
+
+getObject :: ObjectId -> State GameState (Maybe GameObject)
+getObject objectId =
+  do game <- get
+     return $ Map.lookup objectId (objects game)
+
+addObject :: GameObject -> State GameState ()
+addObject object =
+  do game <- get
+     let objs = objects game
+         lastId =
+           if Map.null objs
+              then 0
+              else fst $ Map.findMax objs
+         nextId = lastId + 1
+         objects' =
+           Map.insert nextId object objs
+         game' = game {objects = objects'}
+     put game'
+
+removeObject :: ObjectId -> State GameState ()
+removeObject objectId =
+  do game <- get
+     let objs = objects game
+         objects' = Map.delete objectId objs
+         game' = game {objects = objects'}
+     put game'
+
+updateObject :: (GameObject -> State GameState (Maybe GameObject))
+             -> ObjectId
+             -> State GameState ()
+updateObject update objectId =
+  do game <- get
+     let objs = objects game
+     case Map.lookup objectId objs of
+       Nothing -> return ()
+       Just object ->
+         do object' <- update object
+            let objects' =
+                  case object' of
+                    Just object' ->
+                      Map.insert objectId object' objs
+                    Nothing ->
+                      Map.delete objectId objs
+                game' = game {objects = objects'}
+            put game'
+
+updateObjects :: (GameObject -> State GameState (Maybe GameObject))
+              -> State GameState ()
+updateObjects update =
+  do game <- get
+     let keys = Map.keys $ objects game
+     forM_ keys (updateObject update)
+
+gameWalls :: State GameState [Box]
+gameWalls = walls <$> get
+
+gamePlayers :: State GameState [(ObjectId,Player)]
+gamePlayers =
+  do objs <- objects <$> get
+     return $ catMaybes $ map getPlayer (Map.assocs objs)
+  where getPlayer (objectId,PlayerObj player) = Just (objectId, player)
+        getPlayer _ = Nothing
+
+gameEggs :: State GameState [(ObjectId,Egg)]
+gameEggs =
+  do objs <- objects <$> get
+     return $ catMaybes $ map getEgg (Map.assocs objs)
+  where getEgg (objectId,EggObj egg) = Just (objectId,egg)
+        getEgg _ = Nothing
+
+gameExplosions :: State GameState [(ObjectId,Explosion)]
+gameExplosions =
+  do objs <- objects <$> get
+     return $ catMaybes $ map getExplosion (Map.assocs objs)
+  where getExplosion (objectId,ExplosionObj explosion) = Just (objectId,explosion)
+        getExplosion _ = Nothing
+
+getPlayerId :: String -> State GameState (Maybe ObjectId)
+getPlayerId name =
+  do players <- gamePlayers
+     let result = listToMaybe $ filter ((name ==) . playerName . snd) players
+     return $ fst <$> result
 
 -------------------------
 -- Input
 -------------------------
 
-processInput :: GameMsg -> GameState -> GameState
-processInput Frame game = game
-processInput Stop game = game { gameRunning = False }
+processInput :: GameMsg -> State GameState ()
+processInput Frame = return ()
+processInput Stop =
+  modify (\game -> game {gameRunning = False})
 
-processInput (AddPlayer name chan) game =
+processInput (AddPlayer name chan) =
   let player =
         Player {playerName = name
                ,playerChan = chan
@@ -144,126 +238,145 @@ processInput (AddPlayer name chan) game =
                ,playerVel = (0,0)
                ,playerBounds = playerSize
                ,playerHealth = 1}
-  in game {players = player : players game}
+  in addObject (PlayerObj player)
 
-processInput (MovePlayer name (dx,dy)) game =
-  let players' =
-        map (\p ->
-               if playerName p == name
-                  then updatePlayer p
-                  else p) $
-        players game
-  in game {players = players'}
-  where updatePlayer p =
+processInput (MovePlayer name (dx,dy)) =
+  do Just playerId <- getPlayerId name
+     updateObject updatePlayer playerId
+  where updatePlayer (PlayerObj p) =
           let vel = (dx * frameTime,dy * frameTime)
-          in p {playerVel = vel}
+          in return $ Just $ PlayerObj p {playerVel = vel}
 
-processInput (RemovePlayer name) game =
-  let players' = filter ((name /=) . playerName) $ players game
-  in game {players = players'}
+processInput (RemovePlayer name) =
+  do Just playerId <- getPlayerId name
+     removeObject playerId
 
-processInput (ThrowEgg owner (dx,dy)) game =
-  fromMaybe game $
-  do player <- find ((owner ==) . playerName) $ players game
+processInput (ThrowEgg owner (dx,dy)) =
+  do Just playerId <- getPlayerId owner
+     Just (PlayerObj player) <- getObject playerId
      let vel = (dx * frameTime,dy * frameTime)
-         egg =
-           Egg {eggPlayer = owner
-               ,eggPos = playerPos player
-               ,eggVel = vel
-               ,eggHeight = 0
-               ,eggVVel = eggInitialVVel
-               ,eggBounds = eggSize}
-     return $ game {eggs = egg : eggs game}
+         egg = Egg {eggPlayer = owner
+                   ,eggPos = playerPos player
+                   ,eggVel = vel
+                   ,eggHeight = 0
+                   ,eggVVel = eggInitialVVel
+                   ,eggBounds = eggSize}
+     addObject $ EggObj egg
 
 runInput :: GameChan -> GameState -> IO GameState
 runInput chan game =
   do msg <- readChan chan
      case msg of
        Frame -> return game
-       _ -> runInput chan $ processInput msg game
+       _ -> runInput chan $ execState (processInput msg) game
 
 -------------------------
 -- Simulation
 -------------------------
 
-simulatePlayers :: GameState -> GameState
-simulatePlayers game = game {players = map simulate $ players game}
-  where simulate p =
-          let pos = playerPos p
-              vel = playerVel p
-              bounds = playerBounds p
-              otherPlayers = filter (/= p) $ players game
-              playersBoxes =
-                map (boxAt <$> playerBounds <*> playerPos) otherPlayers
-              boxes = playersBoxes ++ walls game
-              Trace pos' _ = trace pos bounds vel boxes
-          in p {playerPos = pos'}
+startExplosion :: Pos -> State GameState ()
+startExplosion pos =
+  let explosion =
+        Explosion {explosionPos = pos
+                  ,explosionT = 0
+                  ,explosionBounds =
+                     ((0,0),(0,0))}
+  in addObject $ ExplosionObj explosion
 
-simulateEggs :: GameState -> GameState
-simulateEggs game =
-  let results = map simulate $ eggs game
-      eggs' = mapMaybe fst results
-      newExplosions = mapMaybe snd results
-  in game {eggs = eggs'
-          ,explosions = newExplosions ++ explosions game}
-  where simulate e =
-          let pos = eggPos e
-              vel = eggVel e
-              bounds = eggBounds e
-              playerBoxes =
-                map (boxAt <$> playerBounds <*> playerPos) $ players game
-              boxes = playerBoxes ++ walls game
-              Trace pos' frac = trace pos bounds vel boxes
-              vVel' = eggVVel e - eggGravity
-              height' = eggHeight e + vVel'
-          in if frac < 1 || height' <= 0
-                then (Nothing
-                     ,Just Explosion {explosionPos = pos'
-                                     ,explosionT = 0
-                                     ,explosionBounds = ((0,0),(0,0))})
-                else (Just e {eggPos = pos'
-                             ,eggVVel = vVel'
-                             ,eggHeight = height'}
-                     ,Nothing)
+damagePlayer :: ObjectId -> Double -> State GameState ()
+damagePlayer playerId damage =
+  updateObject update playerId
+  where update (PlayerObj player) =
+          let health = playerHealth player
+              health' = health - damage
+          in return $ Just (PlayerObj player {playerHealth = health'})
 
-simulateExplosions :: GameState -> GameState
-simulateExplosions game =
-  let explosions' = mapMaybe simulate $ explosions game
-      explosionBoxes =
-        map (boxAt <$> explosionBounds <*> explosionPos) explosions'
-      players' = map (doDamage explosionBoxes) $ players game
-  in game {explosions = explosions'
-          ,players = players'}
-  where simulate e =
-          let t = explosionT e
-              s = (2 * t - 2 * t * t) * explosionSize
-              bounds = ((-s,-s),(s,s))
-              t' = t + explosionRate
-          in if t >= 1
-                then Nothing
-                else Just e {explosionT = t'
-                            ,explosionBounds = bounds}
-        doDamage es p =
+simulatePlayer :: Player -> State GameState (Maybe GameObject)
+simulatePlayer player =
+  do players <- map snd <$> gamePlayers
+     walls <- gameWalls
+     let pos = playerPos player
+         vel = playerVel player
+         bounds = playerBounds player
+         otherPlayers = filter (/= player) players
+         playersBoxes =
+           map (boxAt <$> playerBounds <*> playerPos) otherPlayers
+         boxes = playersBoxes ++ walls
+         Trace pos' _ =
+           trace pos bounds vel boxes
+     return $ Just (PlayerObj player {playerPos = pos'})
+
+simulateEgg :: Egg -> State GameState (Maybe GameObject)
+simulateEgg egg =
+  do players <- map snd <$> gamePlayers
+     walls <- gameWalls
+     let pos = eggPos egg
+         vel = eggVel egg
+         bounds = eggBounds egg
+         playerBoxes =
+           map (boxAt <$> playerBounds <*> playerPos) players
+         boxes = playerBoxes ++ walls
+         Trace pos' frac = trace pos bounds vel boxes
+         vVel' = eggVVel egg - eggGravity
+         height' = eggHeight egg + vVel'
+     if frac < 1 || height' <= 0
+        then do startExplosion pos'
+                return Nothing
+        else return $ Just (EggObj egg {eggPos = pos'
+                                       ,eggVVel = vVel'
+                                       ,eggHeight = height'})
+
+simulateExplosion :: Explosion -> State GameState (Maybe GameObject)
+simulateExplosion explosion =
+  do let t = explosionT explosion
+         s = (2 * t - 2 * t * t) * explosionSize
+         bounds = ((-s,-s),(s,s))
+         t' = t + explosionRate
+     if t >= 1
+        then return Nothing
+        else return $
+             Just (ExplosionObj explosion {explosionT = t'
+                                          ,explosionBounds = bounds})
+
+applyDamage :: State GameState ()
+applyDamage =
+  do players <- gamePlayers
+     explosions <- map snd <$> gameExplosions
+     let explosionBoxes = map (boxAt <$> explosionBounds <*> explosionPos) explosions
+     forM_ players (doDamage explosionBoxes)
+  where doDamage es (playerId,p) =
           let box = (boxAt <$> playerBounds <*> playerPos) p
               hits = length $ filter (boxesIntersect box) es
-              health = playerHealth p
-              health' = health - fromIntegral hits * damageRate
-          in p {playerHealth = health'}
+              damage= fromIntegral hits * damageRate
+          in damagePlayer playerId damage
 
-runSimulation :: GameState -> GameState
-runSimulation = simulateExplosions . simulateEggs . simulatePlayers
+simulateObject :: GameObject -> State GameState (Maybe GameObject)
+simulateObject (PlayerObj player) = simulatePlayer player
+simulateObject (EggObj egg) = simulateEgg egg
+simulateObject (ExplosionObj explosion) = simulateExplosion explosion
+
+runSimulation :: State GameState ()
+runSimulation =
+  do updateObjects simulateObject
+     applyDamage
+
 
 -------------------------
 
 toScene :: GameState -> Scene
 toScene game =
-  Scene {_walls = walls game
-        ,_players =
-           map ((,,) <$> playerName <*> playerPos <*> playerBounds) $
-           players game
-        ,_eggs = map ((,,) <$> eggPos <*> eggBounds <*> eggHeight) $ eggs game
-        ,_explosions =
-           map ((,) <$> explosionPos <*> explosionBounds) $ explosions game}
+  evalState buildScene game
+  where buildScene =
+          do players <- map snd <$> gamePlayers
+             eggs <- map snd <$> gameEggs
+             explosions <- map snd <$> gameExplosions
+             return $ Scene {_walls = walls game
+                            ,_players =
+                              map ((,,) <$> playerName <*> playerPos <*> playerBounds) players
+                            ,_eggs =
+                              map ((,,) <$> eggPos <*> eggBounds <*> eggHeight) eggs
+                            ,_explosions =
+                              map ((,) <$> explosionPos <*> explosionBounds) explosions}
 
 -------------------------
 -- Trace
@@ -271,7 +384,8 @@ toScene game =
 
 calculatePlayersSeen :: GameState -> Player -> [(String, Pos)]
 calculatePlayersSeen game player =
-  let otherPlayers = filter (/= player) $ players game
+  let players = evalState gamePlayers game
+      otherPlayers = filter (/= player) $ Map.elems players
       candidates = map ((,) <$> playerName <*> playerPos) otherPlayers
       pos = playerPos player
       ws = walls game
@@ -279,34 +393,40 @@ calculatePlayersSeen game player =
 
 calculateEggsSeen :: GameState -> Player -> [Pos]
 calculateEggsSeen game player =
-  let candidates = eggPos <$> eggs game
+  let eggs = evalState gameEggs game
+      candidates = eggPos <$> Map.elems eggs
       pos = playerPos player
       ws = walls game
   in filter (\pos' -> canSee pos' pos ws) candidates
 
+
+sendTrace :: GameState -> Player -> IO ()
+sendTrace game player =
+  do send (CurrentPos . playerPos)
+     send (Health . playerHealth)
+     send (PlayersSeen . calculatePlayersSeen game)
+     send (EggsSeen . calculateEggsSeen game)
+  where send f = writeChan (playerChan player) (f player)
+
 runTrace :: GameState -> UTCTime -> IO GameState
 runTrace game t =
   if not $ gameRunning game
-     then do send (const Removed) $ players game
+     then do send (const Removed) players
              return game
-     else let ps = filter needsUpdate $ players game
-              nextTrace = addUTCTime playerTraceInterval t
+     else let ps = filter needsUpdate $ Map.elems $ players game
+              nextTrace =
+                addUTCTime playerTraceInterval t
               players' =
-                map (\p ->
+                Map.map (\p ->
                        if needsUpdate p
                           then p {playerNextTrace = nextTrace}
                           else p)
-                    (players game)
-          in do send (CurrentPos . playerPos) ps
-                send (Health . playerHealth) ps
-                send (PlayersSeen . calculatePlayersSeen game) ps
-                send (EggsSeen . calculateEggsSeen game) ps
+                    players
+          in do mapM_ (sendTrace game) ps
                 return game {players = players'}
-  where send f =
-          mapM_ (\p ->
-                   writeChan (playerChan p)
-                             (f p))
+  where players = evalState gamePlayers game
         needsUpdate p = playerNextTrace p <= t
+
 
 -------------------------
 
@@ -324,11 +444,12 @@ runGame chan renderChan game =
 runGame' :: GameChan -> RenderChan -> GameState -> UTCTime -> IO ()
 runGame' chan renderChan game t0 =
   do writeChan chan Frame
-     game' <- runSimulation <$> runInput chan game
+     afterInput <- runInput chan game
+     let game' = execState runSimulation afterInput
      _ <- sendScene renderChan (toScene game')
-     game'' <- runTrace game' t0
+     --game'' <- runTrace game' t0
      let t1 =
            addUTCTime (realToFrac frameTime)
                       t0
      delayUntil t1
-     when (gameRunning game'') $ runGame' chan renderChan game'' t1
+     when (gameRunning game') $ runGame' chan renderChan game' t1
