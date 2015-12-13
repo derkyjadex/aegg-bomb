@@ -16,11 +16,11 @@ import qualified Data.Map.Strict as Map
 
 type ObjectId = Int
 
-data GameState =
-  GameState {gameRunning :: Bool
-            ,walls       :: [Box]
-            ,objects     :: Map ObjectId GameObject
-            ,traceQueue  :: [(UTCTime,ObjectId)]}
+data Game =
+  Game {gameRunning :: Bool
+       ,walls       :: [Box]
+       ,objects     :: Map ObjectId GameObject
+       ,traceQueue  :: [(UTCTime,ObjectId)]}
 
 data GameObject
   = PlayerObj Player
@@ -127,23 +127,23 @@ damageRate =
 newGameChan :: IO GameChan
 newGameChan = newChan
 
-newGame :: [Box] -> GameState
+newGame :: [Box] -> Game
 newGame ws =
-  GameState {gameRunning = True
-            ,walls = ws
-            ,objects = Map.empty
-            ,traceQueue = []}
+  Game {gameRunning = True
+       ,walls = ws
+       ,objects = Map.empty
+       ,traceQueue = []}
 
 -------------------------
 -- Modify
 -------------------------
 
-getObject :: ObjectId -> State GameState (Maybe GameObject)
+getObject :: ObjectId -> State Game (Maybe GameObject)
 getObject objectId =
   do game <- get
      return $ Map.lookup objectId (objects game)
 
-addObject :: GameObject -> State GameState ObjectId
+addObject :: GameObject -> State Game ObjectId
 addObject object =
   do objs <- objects <$> get
      let lastId =
@@ -156,15 +156,15 @@ addObject object =
      modify (\game -> game {objects = objects'})
      return nextId
 
-removeObject :: ObjectId -> State GameState ()
+removeObject :: ObjectId -> State Game ()
 removeObject objectId =
   do objs <- objects <$> get
      let objects' = Map.delete objectId objs
      modify (\game -> game {objects = objects'})
 
-updateObject :: (GameObject -> State GameState (Maybe GameObject))
+updateObject :: (GameObject -> State Game (Maybe GameObject))
              -> ObjectId
-             -> State GameState ()
+             -> State Game ()
 updateObject update objectId =
   do objs <- objects <$> get
      case Map.lookup objectId objs of
@@ -180,51 +180,51 @@ updateObject update objectId =
                       Map.delete objectId objs
             modify (\game -> game {objects = objects'})
 
-updateObjects :: (GameObject -> State GameState (Maybe GameObject))
-              -> State GameState ()
+updateObjects :: (GameObject -> State Game (Maybe GameObject))
+              -> State Game ()
 updateObjects update =
   do objs <- objects <$> get
      let keys = Map.keys objs
      forM_ keys (updateObject update)
 
-gameWalls :: State GameState [Box]
+gameWalls :: State Game [Box]
 gameWalls = walls <$> get
 
-getPlayer :: ObjectId -> State GameState (Maybe Player)
+getPlayer :: ObjectId -> State Game (Maybe Player)
 getPlayer playerId =
   do objs <- objects <$> get
      return $ Map.lookup playerId objs >>= getPlayer
   where getPlayer (PlayerObj player) = Just player
         getPlayer _ = Nothing
 
-gamePlayers :: State GameState [(ObjectId,Player)]
+gamePlayers :: State Game [(ObjectId,Player)]
 gamePlayers =
   do objs <- objects <$> get
      return $ catMaybes $ map getPlayer (Map.assocs objs)
   where getPlayer (objectId,PlayerObj player) = Just (objectId, player)
         getPlayer _ = Nothing
 
-gameEggs :: State GameState [(ObjectId,Egg)]
+gameEggs :: State Game [(ObjectId,Egg)]
 gameEggs =
   do objs <- objects <$> get
      return $ catMaybes $ map getEgg (Map.assocs objs)
   where getEgg (objectId,EggObj egg) = Just (objectId,egg)
         getEgg _ = Nothing
 
-gameExplosions :: State GameState [(ObjectId,Explosion)]
+gameExplosions :: State Game [(ObjectId,Explosion)]
 gameExplosions =
   do objs <- objects <$> get
      return $ catMaybes $ map getExplosion (Map.assocs objs)
   where getExplosion (objectId,ExplosionObj explosion) = Just (objectId,explosion)
         getExplosion _ = Nothing
 
-getPlayerId :: String -> State GameState (Maybe ObjectId)
+getPlayerId :: String -> State Game (Maybe ObjectId)
 getPlayerId name =
   do players <- gamePlayers
      let result = listToMaybe $ filter ((name ==) . playerName . snd) players
      return $ fst <$> result
 
-addToTraceQueue :: ObjectId -> UTCTime -> State GameState ()
+addToTraceQueue :: ObjectId -> UTCTime -> State Game ()
 addToTraceQueue objectId time =
   modify (\game -> game {traceQueue = (time,objectId) : (traceQueue game)})
 
@@ -232,7 +232,7 @@ addToTraceQueue objectId time =
 -- Input
 -------------------------
 
-processInput :: GameMsg -> State GameState ()
+processInput :: GameMsg -> State Game ()
 processInput Frame = return ()
 processInput Stop =
   modify (\game -> game {gameRunning = False})
@@ -272,7 +272,7 @@ processInput (ThrowEgg owner (dx,dy)) =
      addObject $ EggObj egg
      return ()
 
-runInput :: GameChan -> GameState -> IO GameState
+runInput :: GameChan -> Game -> IO Game
 runInput chan game =
   do msg <- readChan chan
      case msg of
@@ -283,7 +283,7 @@ runInput chan game =
 -- Simulation
 -------------------------
 
-startExplosion :: Pos -> State GameState ()
+startExplosion :: Pos -> State Game ()
 startExplosion pos =
   do let explosion =
            Explosion {explosionPos = pos
@@ -293,7 +293,7 @@ startExplosion pos =
      addObject $ ExplosionObj explosion
      return ()
 
-damagePlayer :: ObjectId -> Double -> State GameState ()
+damagePlayer :: ObjectId -> Double -> State Game ()
 damagePlayer playerId damage =
   updateObject update playerId
   where update (PlayerObj player) =
@@ -301,7 +301,7 @@ damagePlayer playerId damage =
               health' = health - damage
           in return $ Just (PlayerObj player {playerHealth = health'})
 
-simulatePlayer :: Player -> State GameState (Maybe GameObject)
+simulatePlayer :: Player -> State Game (Maybe GameObject)
 simulatePlayer player =
   do players <- map snd <$> gamePlayers
      walls <- gameWalls
@@ -316,7 +316,7 @@ simulatePlayer player =
            trace pos bounds vel boxes
      return $ Just (PlayerObj player {playerPos = pos'})
 
-simulateEgg :: Egg -> State GameState (Maybe GameObject)
+simulateEgg :: Egg -> State Game (Maybe GameObject)
 simulateEgg egg =
   do players <- map snd <$> gamePlayers
      walls <- gameWalls
@@ -336,7 +336,7 @@ simulateEgg egg =
                                        ,eggVVel = vVel'
                                        ,eggHeight = height'})
 
-simulateExplosion :: Explosion -> State GameState (Maybe GameObject)
+simulateExplosion :: Explosion -> State Game (Maybe GameObject)
 simulateExplosion explosion =
   do let t = explosionT explosion
          s = (2 * t - 2 * t * t) * explosionSize
@@ -348,7 +348,7 @@ simulateExplosion explosion =
              Just (ExplosionObj explosion {explosionT = t'
                                           ,explosionBounds = bounds})
 
-applyDamage :: State GameState ()
+applyDamage :: State Game ()
 applyDamage =
   do players <- gamePlayers
      explosions <- map snd <$> gameExplosions
@@ -360,12 +360,12 @@ applyDamage =
               damage= fromIntegral hits * damageRate
           in damagePlayer playerId damage
 
-simulateObject :: GameObject -> State GameState (Maybe GameObject)
+simulateObject :: GameObject -> State Game (Maybe GameObject)
 simulateObject (PlayerObj player) = simulatePlayer player
 simulateObject (EggObj egg) = simulateEgg egg
 simulateObject (ExplosionObj explosion) = simulateExplosion explosion
 
-runSimulation :: State GameState ()
+runSimulation :: State Game ()
 runSimulation =
   do updateObjects simulateObject
      applyDamage
@@ -373,7 +373,7 @@ runSimulation =
 
 -------------------------
 
-toScene :: GameState -> Scene
+toScene :: Game -> Scene
 toScene game =
   evalState buildScene game
   where buildScene =
@@ -392,7 +392,7 @@ toScene game =
 -- Trace
 -------------------------
 
-calculatePlayersSeen :: GameState -> Player -> [(String, Pos)]
+calculatePlayersSeen :: Game -> Player -> [(String, Pos)]
 calculatePlayersSeen game player =
   let players = snd <$> evalState gamePlayers game
       otherPlayers = filter (/= player) players
@@ -401,7 +401,7 @@ calculatePlayersSeen game player =
       ws = walls game
   in filter (\(_,pos') -> canSee pos' pos ws) candidates
 
-calculateEggsSeen :: GameState -> Player -> [Pos]
+calculateEggsSeen :: Game -> Player -> [Pos]
 calculateEggsSeen game player =
   let eggs = snd <$> evalState gameEggs game
       candidates = eggPos <$> eggs
@@ -409,7 +409,7 @@ calculateEggsSeen game player =
       ws = walls game
   in filter (\pos' -> canSee pos' pos ws) candidates
 
-sendTrace :: GameState -> Player -> IO ()
+sendTrace :: Game -> Player -> IO ()
 sendTrace game player =
   do send (CurrentPos . playerPos)
      send (Health . playerHealth)
@@ -421,7 +421,7 @@ sendRemoved :: Player -> IO ()
 sendRemoved player =
   writeChan (playerChan player) Removed
 
-runTraceQueue :: UTCTime -> State GameState [Player]
+runTraceQueue :: UTCTime -> State Game [Player]
 runTraceQueue t =
   do game <- get
      let (update, keep) = partition needsTrace (traceQueue game)
@@ -434,7 +434,7 @@ runTraceQueue t =
   where needsTrace (time,_) = time <= t
         newTime = addUTCTime playerTraceInterval t
 
-runTrace :: GameState -> UTCTime -> IO GameState
+runTrace :: Game -> UTCTime -> IO Game
 runTrace game t =
   if not $ gameRunning game
      then do let players = snd <$> evalState gamePlayers game
@@ -452,12 +452,12 @@ delayUntil end =
      let delay = diffUTCTime end start
      threadDelay . round $ delay * 1000000
 
-runGame :: GameChan -> RenderChan -> GameState -> IO ()
+runGame :: GameChan -> RenderChan -> Game -> IO ()
 runGame chan renderChan game =
   do t0 <- getCurrentTime
      runGame' chan renderChan game t0
 
-runGame' :: GameChan -> RenderChan -> GameState -> UTCTime -> IO ()
+runGame' :: GameChan -> RenderChan -> Game -> UTCTime -> IO ()
 runGame' chan renderChan game t0 =
   do writeChan chan Frame
      afterInput <- runInput chan game
