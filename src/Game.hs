@@ -140,8 +140,8 @@ newGame ws =
 
 getObject :: ObjectId -> State Game (Maybe GameObject)
 getObject objectId =
-  do game <- get
-     return $ Map.lookup objectId (objects game)
+  do objs <- objects <$> get
+     return $ Map.lookup objectId objs
 
 addObject :: GameObject -> State Game ObjectId
 addObject object =
@@ -423,13 +423,13 @@ sendRemoved player =
 
 runTraceQueue :: UTCTime -> State Game [Player]
 runTraceQueue t =
-  do game <- get
-     let (update, keep) = partition needsTrace (traceQueue game)
+  do queue <- traceQueue <$> get
+     let (update, keep) = partition needsTrace queue
          updateIds = snd <$> update
      players <- mapM getPlayer updateIds
      let validIds = fst <$> filter (isJust . snd) (zip updateIds players)
          newEntries = map ((,) newTime) validIds
-     put game {traceQueue = keep ++ newEntries}
+     modify (\game -> game {traceQueue = keep ++ newEntries})
      return $ catMaybes players
   where needsTrace (time,_) = time <= t
         newTime = addUTCTime playerTraceInterval t
