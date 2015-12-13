@@ -145,51 +145,46 @@ getObject objectId =
 
 addObject :: GameObject -> State GameState ObjectId
 addObject object =
-  do game <- get
-     let objs = objects game
-         lastId =
+  do objs <- objects <$> get
+     let lastId =
            if Map.null objs
               then 0
               else fst $ Map.findMax objs
          nextId = lastId + 1
          objects' =
            Map.insert nextId object objs
-         game' = game {objects = objects'}
-     put game'
+     modify (\game -> game {objects = objects'})
      return nextId
 
 removeObject :: ObjectId -> State GameState ()
 removeObject objectId =
-  do game <- get
-     let objs = objects game
-         objects' = Map.delete objectId objs
-         game' = game {objects = objects'}
-     put game'
+  do objs <- objects <$> get
+     let objects' = Map.delete objectId objs
+     modify (\game -> game {objects = objects'})
 
 updateObject :: (GameObject -> State GameState (Maybe GameObject))
              -> ObjectId
              -> State GameState ()
 updateObject update objectId =
-  do game <- get
-     let objs = objects game
+  do objs <- objects <$> get
      case Map.lookup objectId objs of
        Nothing -> return ()
        Just object ->
          do object' <- update object
+            objs <- objects <$> get
             let objects' =
                   case object' of
                     Just object' ->
                       Map.insert objectId object' objs
                     Nothing ->
                       Map.delete objectId objs
-                game' = game {objects = objects'}
-            put game'
+            modify (\game -> game {objects = objects'})
 
 updateObjects :: (GameObject -> State GameState (Maybe GameObject))
               -> State GameState ()
 updateObjects update =
-  do game <- get
-     let keys = Map.keys $ objects game
+  do objs <- objects <$> get
+     let keys = Map.keys objs
      forM_ keys (updateObject update)
 
 gameWalls :: State GameState [Box]
