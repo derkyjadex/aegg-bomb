@@ -18,13 +18,14 @@ import           System.Random
 type ObjectId = Int
 
 data Game =
-  Game {gameRunning :: Bool
-       ,walls       :: [Box]
-       ,bounds      :: Box
-       ,objects     :: Map ObjectId GameObject
-       ,traceQueue  :: [(UTCTime,ObjectId)]
-       ,randGen     :: StdGen
-       ,killedPlayers :: [(Player,String)]}
+  Game {gameRunning   :: Bool
+       ,walls         :: [Box]
+       ,bounds        :: Box
+       ,objects       :: Map ObjectId GameObject
+       ,traceQueue    :: [(UTCTime,ObjectId)]
+       ,randGen       :: StdGen
+       ,killedPlayers :: [(Player,String)]
+       ,scores        :: Map String Int}
 
 data GameObject
   = PlayerObj Player
@@ -143,7 +144,8 @@ newGame ws =
           ,objects = Map.empty
           ,traceQueue = []
           ,randGen = mkStdGen 405968
-          ,killedPlayers = []}
+          ,killedPlayers = []
+          ,scores = Map.empty}
 
 -------------------------
 -- Modify
@@ -253,6 +255,12 @@ findFreeSpace box =
        then return (x,y)
        else findFreeSpace box
 
+givePoints :: String -> Int -> State Game ()
+givePoints name points =
+  do scores <- scores <$> get
+     modify $ \game ->
+       game {scores = Map.adjust (+ points) name scores}
+
 -------------------------
 -- Input
 -------------------------
@@ -273,6 +281,8 @@ processInput (AddPlayer name chan) =
                   ,playerHealth = 1}
      playerId <- addObject (PlayerObj player)
      addToTraceQueue playerId zeroTime
+     modify $ \game ->
+       game {scores = Map.insert name 0 (scores game)}
 
 processInput (MovePlayer name (dx,dy)) =
   do Just playerId <- getPlayerId name
@@ -330,6 +340,8 @@ damagePlayer playerId damage attacker =
         else do pos <- findFreeSpace playerSize
                 updatePlayer player {playerPos = pos
                                     ,playerHealth = 1}
+                givePoints attacker 2
+                givePoints (playerName player) (-1)
                 modify $ \game ->
                   game {killedPlayers = (player,attacker) : (killedPlayers game)}
 
@@ -480,10 +492,9 @@ runTrace game t =
 
 runKilledPlayers :: Game -> IO Game
 runKilledPlayers game =
-  do forM_ (killedPlayers game) sendKilled
+  do forM_ (killedPlayers game) $ \(player,attacker) ->
+       writeChan (playerChan player) (Killed attacker)
      return game {killedPlayers = []}
-  where sendKilled (player,attacker) =
-          writeChan (playerChan player) (Killed attacker)
 
 -------------------------
 
