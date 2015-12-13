@@ -14,13 +14,14 @@ data Scene =
   Scene {_walls      :: [Box]
         ,_players    :: [(String,Pos,Box)]
         ,_eggs       :: [(Pos,Box,Double)]
-        ,_explosions :: [(Pos,Box)]}
+        ,_explosions :: [(Pos,Box)]
+        ,_scores     :: [(String,Int)]}
   deriving (Show)
 
 data RenderChan = RenderChan (MVar Scene)
 
 newRenderChan :: IO RenderChan
-newRenderChan = RenderChan <$> newMVar (Scene [] [] [] [])
+newRenderChan = RenderChan <$> newMVar (Scene [] [] [] [] [])
 
 sendScene :: RenderChan -> Scene -> IO Scene
 sendScene (RenderChan var) = swapMVar var
@@ -47,12 +48,17 @@ explosionJson :: (Pos, Box) -> Value
 explosionJson (pos,bounds) =
   object ["pos" .= pos,"bounds" .= bounds]
 
+scoreJson :: (String,Int) -> Value
+scoreJson (name,points) =
+  object ["name" .= name,"points" .= points]
+
 sceneJson :: Scene -> Value
-sceneJson (Scene walls players eggs explosions) =
+sceneJson (Scene walls players eggs explosions scores) =
   object ["walls" .= fmap wallJson walls
          ,"players" .= fmap playerJson players
          ,"eggs" .= fmap eggJson eggs
-         ,"explosions" .= fmap explosionJson explosions]
+         ,"explosions" .= fmap explosionJson explosions
+         ,"scores" .= fmap scoreJson scores]
 
 runConnection :: RenderChan -> WS.Connection -> IO ()
 runConnection chan conn =

@@ -27,7 +27,8 @@ type alias Scene =
   {walls : List Wall
   ,players : List Player
   ,eggs : List Egg
-  ,explosions : List Explosion}
+  ,explosions : List Explosion
+  ,scores : List (String,Int)}
 
 type alias Model =
   {scene : Maybe (Result String Scene)}
@@ -66,10 +67,17 @@ decodeExplosion =
     ("pos" := decodePosition)
     ("bounds" := decodeBox)
 
+decodeScore : Decoder (String,Int)
+decodeScore =
+  object2 (,)
+    ("name" := string)
+    ("points" := int)
+
 decodeScene : Decoder Scene
 decodeScene =
-  object4 Scene
+  object5 Scene
     ("walls" := list decodeWall)
     ("players" := list decodePlayer)
     ("eggs" := list decodeEgg)
     ("explosions" := list decodeExplosion)
+    ("scores" := list decodeScore)

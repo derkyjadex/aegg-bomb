@@ -432,7 +432,8 @@ toScene game =
                             ,_eggs =
                               map ((,,) <$> eggPos <*> eggBounds <*> eggHeight) eggs
                             ,_explosions =
-                              map ((,) <$> explosionPos <*> explosionBounds) explosions}
+                              map ((,) <$> explosionPos <*> explosionBounds) explosions
+                            ,_scores = Map.assocs (scores game)}
 
 -------------------------
 -- Trace
