@@ -23,7 +23,8 @@ data Game =
        ,bounds      :: Box
        ,objects     :: Map ObjectId GameObject
        ,traceQueue  :: [(UTCTime,ObjectId)]
-       ,randGen     :: StdGen}
+       ,randGen     :: StdGen
+       ,killedPlayers :: [Player]}
 
 data GameObject
   = PlayerObj Player
@@ -71,6 +72,7 @@ data PlayerMsg
   | Health Double
   | PlayersSeen [(String,Pos)]
   | EggsSeen [Pos]
+  | Killed
   | Removed
   deriving (Eq)
 
@@ -139,7 +141,8 @@ newGame ws =
           ,bounds = ((minimum xs, minimum ys), (maximum xs, maximum ys))
           ,objects = Map.empty
           ,traceQueue = []
-          ,randGen = mkStdGen 405968}
+          ,randGen = mkStdGen 405968
+          ,killedPlayers = []}
 
 -------------------------
 -- Modify
@@ -317,11 +320,18 @@ startExplosion pos =
 
 damagePlayer :: ObjectId -> Double -> State Game ()
 damagePlayer playerId damage =
-  updateObject update playerId
-  where update (PlayerObj player) =
-          let health = playerHealth player
-              health' = health - damage
-          in return $ Just (PlayerObj player {playerHealth = health'})
+  do Just player <- getPlayer playerId
+     let health = playerHealth player
+         health' = health - damage
+     if health' > 0
+        then updatePlayer player {playerHealth = health'}
+        else do pos <- findFreeSpace playerSize
+                updatePlayer player {playerPos = pos
+                                    ,playerHealth = 1}
+                modify (\game -> game {killedPlayers = player : (killedPlayers game)})
+
+  where updatePlayer p =
+          updateObject (\_ -> return $ Just (PlayerObj p)) playerId
 
 simulatePlayer :: Player -> State Game (Maybe GameObject)
 simulatePlayer player =
@@ -466,6 +476,13 @@ runTrace game t =
              forM_ players (sendTrace game')
              return game'
 
+runKilledPlayers :: Game -> IO Game
+runKilledPlayers game =
+  do forM_ (killedPlayers game) sendKilled
+     return game {killedPlayers = []}
+  where sendKilled p =
+          writeChan (playerChan p) Killed
+
 -------------------------
 
 delayUntil :: UTCTime -> IO ()
@@ -486,8 +503,9 @@ runGame' chan renderChan game t0 =
      let game' = execState runSimulation afterInput
      _ <- sendScene renderChan (toScene game')
      game'' <- runTrace game' t0
+     game''' <- runKilledPlayers game''
      let t1 =
            addUTCTime (realToFrac frameTime)
                       t0
      delayUntil t1
-     when (gameRunning game'') $ runGame' chan renderChan game'' t1
+     when (gameRunning game''') $ runGame' chan renderChan game''' t1
