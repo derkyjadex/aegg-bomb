@@ -13,14 +13,17 @@ import           Graphics
 import           Physics
 import           Data.Map.Strict (Map)
 import qualified Data.Map.Strict as Map
+import           System.Random
 
 type ObjectId = Int
 
 data Game =
   Game {gameRunning :: Bool
        ,walls       :: [Box]
+       ,bounds      :: Box
        ,objects     :: Map ObjectId GameObject
-       ,traceQueue  :: [(UTCTime,ObjectId)]}
+       ,traceQueue  :: [(UTCTime,ObjectId)]
+       ,randGen     :: StdGen}
 
 data GameObject
   = PlayerObj Player
@@ -129,10 +132,14 @@ newGameChan = newChan
 
 newGame :: [Box] -> Game
 newGame ws =
-  Game {gameRunning = True
-       ,walls = ws
-       ,objects = Map.empty
-       ,traceQueue = []}
+  let xs = (fst . fst <$> ws) ++ (fst . snd <$> ws)
+      ys = (snd . fst <$> ws) ++ (snd . snd <$> ws)
+  in Game {gameRunning = True
+          ,walls = ws
+          ,bounds = ((minimum xs, minimum ys), (maximum xs, maximum ys))
+          ,objects = Map.empty
+          ,traceQueue = []
+          ,randGen = mkStdGen 405968}
 
 -------------------------
 -- Modify
@@ -228,6 +235,20 @@ addToTraceQueue :: ObjectId -> UTCTime -> State Game ()
 addToTraceQueue objectId time =
   modify (\game -> game {traceQueue = (time,objectId) : (traceQueue game)})
 
+findFreeSpace :: Box -> State Game Pos
+findFreeSpace box =
+  do ((minX, minY), (maxX, maxY)) <- bounds <$> get
+     walls <- gameWalls
+     rand <- randGen <$> get
+     let (x, rand') = randomR (minX, maxX) rand
+         (y, rand'') = randomR (minY, maxY) rand'
+         testBox = boxAt box (x, y)
+         isFree = not $ any (boxesIntersect testBox) walls
+     modify (\game -> game {randGen = rand''})
+     if isFree
+       then return (x,y)
+       else findFreeSpace box
+
 -------------------------
 -- Input
 -------------------------
@@ -238,15 +259,16 @@ processInput Stop =
   modify (\game -> game {gameRunning = False})
 
 processInput (AddPlayer name chan) =
-  let player =
-        Player {playerName = name
-               ,playerChan = chan
-               ,playerPos = (0,0)
-               ,playerVel = (0,0)
-               ,playerBounds = playerSize
-               ,playerHealth = 1}
-  in do playerId <- addObject (PlayerObj player)
-        addToTraceQueue playerId zeroTime
+  do pos <- findFreeSpace playerSize
+     let player =
+           Player {playerName = name
+                  ,playerChan = chan
+                  ,playerPos = pos
+                  ,playerVel = (0,0)
+                  ,playerBounds = playerSize
+                  ,playerHealth = 1}
+     playerId <- addObject (PlayerObj player)
+     addToTraceQueue playerId zeroTime
 
 processInput (MovePlayer name (dx,dy)) =
   do Just playerId <- getPlayerId name

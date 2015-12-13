@@ -36,4 +36,5 @@ executable aegg-bomb
                      , websockets
                      , mtl
                      , containers
+                     , random
   default-language:    Haskell2010
