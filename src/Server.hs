@@ -44,7 +44,7 @@ runConnection gameChan (sock,_) =
             PlayersSeen players ->
               hPutStrLn h $ "Can see players " ++ show players
             EggsSeen eggs -> hPutStrLn h $ "Can see eggs " ++ show eggs
-            Killed -> hPutStrLn h $ "You have been killed"
+            Killed attacker -> hPutStrLn h $ "You have been killed by " ++ attacker
             Removed -> hClose h
      handle (\(SomeException _) -> return ()) . forever $
        do cmd <- hGetLine h

@@ -24,7 +24,7 @@ data Game =
        ,objects     :: Map ObjectId GameObject
        ,traceQueue  :: [(UTCTime,ObjectId)]
        ,randGen     :: StdGen
-       ,killedPlayers :: [Player]}
+       ,killedPlayers :: [(Player,String)]}
 
 data GameObject
   = PlayerObj Player
@@ -49,7 +49,8 @@ data Egg =
       ,eggBounds :: Box}
 
 data Explosion =
-  Explosion {explosionPos    :: Pos
+  Explosion {explosionPlayer :: String
+            ,explosionPos    :: Pos
             ,explosionT      :: Double
             ,explosionBounds :: Box}
 
@@ -72,7 +73,7 @@ data PlayerMsg
   | Health Double
   | PlayersSeen [(String,Pos)]
   | EggsSeen [Pos]
-  | Killed
+  | Killed String
   | Removed
   deriving (Eq)
 
@@ -308,18 +309,19 @@ runInput chan game =
 -- Simulation
 -------------------------
 
-startExplosion :: Pos -> State Game ()
-startExplosion pos =
+startExplosion :: Pos -> String -> State Game ()
+startExplosion pos player =
   do let explosion =
-           Explosion {explosionPos = pos
+           Explosion {explosionPlayer = player
+                     ,explosionPos = pos
                      ,explosionT = 0
                      ,explosionBounds =
                         ((0,0),(0,0))}
      addObject $ ExplosionObj explosion
      return ()
 
-damagePlayer :: ObjectId -> Double -> State Game ()
-damagePlayer playerId damage =
+damagePlayer :: ObjectId -> Double -> String -> State Game ()
+damagePlayer playerId damage attacker =
   do Just player <- getPlayer playerId
      let health = playerHealth player
          health' = health - damage
@@ -328,7 +330,8 @@ damagePlayer playerId damage =
         else do pos <- findFreeSpace playerSize
                 updatePlayer player {playerPos = pos
                                     ,playerHealth = 1}
-                modify (\game -> game {killedPlayers = player : (killedPlayers game)})
+                modify $ \game ->
+                  game {killedPlayers = (player,attacker) : (killedPlayers game)}
 
   where updatePlayer p =
           updateObject (\_ -> return $ Just (PlayerObj p)) playerId
@@ -362,7 +365,7 @@ simulateEgg egg =
          vVel' = eggVVel egg - eggGravity
          height' = eggHeight egg + vVel'
      if frac < 1 || height' <= 0
-        then do startExplosion pos'
+        then do startExplosion pos' (eggPlayer egg)
                 return Nothing
         else return $ Just (EggObj egg {eggPos = pos'
                                        ,eggVVel = vVel'
@@ -382,15 +385,14 @@ simulateExplosion explosion =
 
 applyDamage :: State Game ()
 applyDamage =
-  do players <- gamePlayers
-     explosions <- map snd <$> gameExplosions
-     let explosionBoxes = map (boxAt <$> explosionBounds <*> explosionPos) explosions
-     forM_ players (doDamage explosionBoxes)
-  where doDamage es (playerId,p) =
-          let box = (boxAt <$> playerBounds <*> playerPos) p
-              hits = length $ filter (boxesIntersect box) es
-              damage= fromIntegral hits * damageRate
-          in damagePlayer playerId damage
+  do explosions <- map snd <$> gameExplosions
+     forM_ explosions $ \explosion ->
+       do players <- gamePlayers
+          let box = (boxAt <$> explosionBounds <*> explosionPos) explosion
+              attacker = explosionPlayer explosion
+              hits = filter ((boxesIntersect box) . (boxAt <$> playerBounds <*> playerPos) . snd) players
+          forM_ (fst <$> hits) $ \playerId ->
+            damagePlayer playerId damageRate attacker
 
 simulateObject :: GameObject -> State Game (Maybe GameObject)
 simulateObject (PlayerObj player) = simulatePlayer player
@@ -480,8 +482,8 @@ runKilledPlayers :: Game -> IO Game
 runKilledPlayers game =
   do forM_ (killedPlayers game) sendKilled
      return game {killedPlayers = []}
-  where sendKilled p =
-          writeChan (playerChan p) Killed
+  where sendKilled (player,attacker) =
+          writeChan (playerChan player) (Killed attacker)
 
 -------------------------
 
