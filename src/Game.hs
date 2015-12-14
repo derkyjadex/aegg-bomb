@@ -264,8 +264,7 @@ givePoints name points =
 
 playerExists :: String -> State Game Bool
 playerExists name =
-  do scores <- scores <$> get
-     return $ Map.member name scores
+  isJust <$> getPlayerId name
 
 rejectPlayer :: Chan PlayerMsg -> String -> State Game ()
 rejectPlayer chan reason =
@@ -307,8 +306,10 @@ processInput (MovePlayer name (dx,dy)) =
           in return $ Just $ PlayerObj p {playerVel = vel}
 
 processInput (RemovePlayer name) =
-  do Just playerId <- getPlayerId name
-     removeObject playerId
+  do result <- getPlayerId name
+     case result of
+       Just playerId -> removeObject playerId
+       Nothing -> return ()
 
 processInput (ThrowEgg owner (dx,dy)) =
   do Just playerId <- getPlayerId owner
