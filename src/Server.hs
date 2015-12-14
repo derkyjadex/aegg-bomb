@@ -28,6 +28,12 @@ playerMsgJson (Status pos health players eggs) =
 playerMsgJson (Killed player) =
   object ["killedBy" .= player]
 
+playerMsgJson Added =
+  messageJson "Welcome to the game!"
+
+playerMsgJson (Rejected reason) =
+  messageJson ("You have been rejected because: " ++ reason)
+
 playerMsgJson Removed =
   messageJson "You have been removed from the game"
 
@@ -35,18 +41,33 @@ messageJson :: String -> Value
 messageJson message =
   object ["message" .= T.pack message]
 
-startConnection :: GameChan -> WS.Connection -> IO (String,Chan PlayerMsg)
-startConnection gameChan conn =
-  do WS.Text nameBytes <- WS.receiveDataMessage conn
-     let name = T.unpack $ WS.fromLazyByteString nameBytes
-     playerChan <- newChan
-     writeChan gameChan $ AddPlayer name playerChan
-     return (name,playerChan)
+sendMessage :: WS.Connection -> String -> IO ()
+sendMessage conn message =
+  WS.sendTextData conn $ encode $ messageJson message
 
-runConnection :: GameChan -> WS.Connection -> IO ()
-runConnection gameChan conn =
-  do (name,playerChan) <- startConnection gameChan conn
-     reader <-
+startConnection :: GameChan -> WS.Connection -> IO (Maybe (String,Chan PlayerMsg))
+startConnection gameChan conn =
+  do sendMessage conn "Please choose a player name"
+     WS.Text nameBytes <- WS.receiveDataMessage conn
+     let name = T.unpack $ WS.fromLazyByteString nameBytes
+     if name == ""
+        then do sendMessage conn "Player name cannot be empty"
+                startConnection gameChan conn
+        else if length name > 30
+                then do sendMessage conn "Player name too long"
+                        startConnection gameChan conn
+                else do playerChan <- newChan
+                        writeChan gameChan $ AddPlayer name playerChan
+                        response <- readChan playerChan
+                        WS.sendTextData conn $ encode $ playerMsgJson response
+                        case response of
+                          Added -> return $ Just (name,playerChan)
+                          Rejected _ -> startConnection gameChan conn
+                          _ -> return Nothing
+
+connectionMain :: GameChan -> WS.Connection -> String -> Chan PlayerMsg -> IO ()
+connectionMain gameChan conn name playerChan =
+  do reader <-
        forkIO . forever $
        do msg <- readChan playerChan
           WS.sendTextData conn $ encode $ playerMsgJson msg
@@ -60,6 +81,13 @@ runConnection gameChan conn =
             Nothing -> WS.sendTextData conn $ encode $ messageJson ("Unknown command: '" ++ cmd ++ "'")
      killThread reader
      writeChan gameChan (RemovePlayer name)
+
+runConnection :: GameChan -> WS.Connection -> IO ()
+runConnection gameChan conn =
+  do result <- startConnection gameChan conn
+     case result of
+       Just (name,playerChan) -> connectionMain gameChan conn name playerChan
+       Nothing -> WS.sendClose conn $ T.pack ""
 
 runWebsocket :: GameChan -> WS.ServerApp
 runWebsocket chan pending =

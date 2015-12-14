@@ -25,6 +25,7 @@ data Game =
        ,statusQueue   :: [(UTCTime,ObjectId)]
        ,randGen       :: StdGen
        ,killedPlayers :: [(Player,String)]
+       ,addResponses  :: [(Chan PlayerMsg,PlayerMsg)]
        ,scores        :: Map String Int}
 
 data GameObject
@@ -72,6 +73,8 @@ type GameChan = Chan GameMsg
 data PlayerMsg
   = Status Pos Double [(String,Pos)] [Pos]
   | Killed String
+  | Added
+  | Rejected String
   | Removed
   deriving (Eq)
 
@@ -142,6 +145,7 @@ newGame ws =
           ,statusQueue = []
           ,randGen = mkStdGen 405968
           ,killedPlayers = []
+          ,addResponses = []
           ,scores = Map.empty}
 
 -------------------------
@@ -258,6 +262,16 @@ givePoints name points =
      modify $ \game ->
        game {scores = Map.adjust (+ points) name scores}
 
+playerExists :: String -> State Game Bool
+playerExists name =
+  do scores <- scores <$> get
+     return $ Map.member name scores
+
+rejectPlayer :: Chan PlayerMsg -> String -> State Game ()
+rejectPlayer chan reason =
+  modify $ \game ->
+    game {addResponses = (chan,Rejected reason) : (addResponses game)}
+
 -------------------------
 -- Input
 -------------------------
@@ -268,18 +282,22 @@ processInput Stop =
   modify (\game -> game {gameRunning = False})
 
 processInput (AddPlayer name chan) =
-  do pos <- findFreeSpace playerSize
-     let player =
-           Player {playerName = name
-                  ,playerChan = chan
-                  ,playerPos = pos
-                  ,playerVel = (0,0)
-                  ,playerBounds = playerSize
-                  ,playerHealth = 1}
-     playerId <- addObject (PlayerObj player)
-     addToStatusQueue playerId zeroTime
-     modify $ \game ->
-       game {scores = Map.insert name 0 (scores game)}
+  do exists <- playerExists name
+     if exists
+        then rejectPlayer chan "Player name already used"
+        else do pos <- findFreeSpace playerSize
+                let player =
+                      Player {playerName = name
+                             ,playerChan = chan
+                             ,playerPos = pos
+                             ,playerVel = (0,0)
+                             ,playerBounds = playerSize
+                             ,playerHealth = 1}
+                playerId <- addObject (PlayerObj player)
+                addToStatusQueue playerId zeroTime
+                modify $ \game ->
+                  game {addResponses = (chan,Added) : (addResponses game)
+                       ,scores = Map.insert name 0 (scores game)}
 
 processInput (MovePlayer name (dx,dy)) =
   do Just playerId <- getPlayerId name
@@ -494,6 +512,12 @@ runKilledPlayers game =
        writeChan (playerChan player) (Killed attacker)
      return game {killedPlayers = []}
 
+runAddResponses :: Game -> IO Game
+runAddResponses game =
+  do forM_ (addResponses game) $ \(chan,msg) ->
+       writeChan chan msg
+     return game {addResponses = []}
+
 -------------------------
 
 delayUntil :: UTCTime -> IO ()
@@ -513,10 +537,11 @@ runGame' chan renderChan game t0 =
      afterInput <- runInput chan game
      let game' = execState runSimulation afterInput
      _ <- sendScene renderChan (toScene game')
-     game'' <- runStatus game' t0
-     game''' <- runKilledPlayers game''
+     game'' <- runAddResponses game'
+     game''' <- runStatus game'' t0
+     game'''' <- runKilledPlayers game'''
      let t1 =
            addUTCTime (realToFrac frameTime)
                       t0
      delayUntil t1
-     when (gameRunning game''') $ runGame' chan renderChan game''' t1
+     when (gameRunning game'''') $ runGame' chan renderChan game'''' t1
