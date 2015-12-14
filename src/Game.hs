@@ -22,7 +22,7 @@ data Game =
        ,walls         :: [Box]
        ,bounds        :: Box
        ,objects       :: Map ObjectId GameObject
-       ,traceQueue    :: [(UTCTime,ObjectId)]
+       ,statusQueue   :: [(UTCTime,ObjectId)]
        ,randGen       :: StdGen
        ,killedPlayers :: [(Player,String)]
        ,scores        :: Map String Int}
@@ -70,17 +70,14 @@ data GameMsg
 type GameChan = Chan GameMsg
 
 data PlayerMsg
-  = CurrentPos Pos
-  | Health Double
-  | PlayersSeen [(String,Pos)]
-  | EggsSeen [Pos]
+  = Status Pos Double [(String,Pos)] [Pos]
   | Killed String
   | Removed
   deriving (Eq)
 
 data PlayerCmd
-  = Move Vec
-  | Throw Vec
+  = Move Double Double
+  | Throw Double Double
   deriving (Show,Read)
 
 -------------------------
@@ -95,8 +92,8 @@ zeroTime =
 frameTime :: Double
 frameTime = 1 / 60 -- seconds
 
-playerTraceInterval :: NominalDiffTime
-playerTraceInterval = 1 / 2 -- seconds
+playerStatusInterval :: NominalDiffTime
+playerStatusInterval = 1 / 2 -- seconds
 
 playerSize :: Box
 playerSize = ((-0.5, -0.5), (0.5, 0.5))
@@ -142,7 +139,7 @@ newGame ws =
           ,walls = ws
           ,bounds = ((minimum xs, minimum ys), (maximum xs, maximum ys))
           ,objects = Map.empty
-          ,traceQueue = []
+          ,statusQueue = []
           ,randGen = mkStdGen 405968
           ,killedPlayers = []
           ,scores = Map.empty}
@@ -237,9 +234,9 @@ getPlayerId name =
      let result = listToMaybe $ filter ((name ==) . playerName . snd) players
      return $ fst <$> result
 
-addToTraceQueue :: ObjectId -> UTCTime -> State Game ()
-addToTraceQueue objectId time =
-  modify (\game -> game {traceQueue = (time,objectId) : (traceQueue game)})
+addToStatusQueue :: ObjectId -> UTCTime -> State Game ()
+addToStatusQueue objectId time =
+  modify (\game -> game {statusQueue = (time,objectId) : (statusQueue game)})
 
 findFreeSpace :: Box -> State Game Pos
 findFreeSpace box =
@@ -280,7 +277,7 @@ processInput (AddPlayer name chan) =
                   ,playerBounds = playerSize
                   ,playerHealth = 1}
      playerId <- addObject (PlayerObj player)
-     addToTraceQueue playerId zeroTime
+     addToStatusQueue playerId zeroTime
      modify $ \game ->
        game {scores = Map.insert name 0 (scores game)}
 
@@ -436,7 +433,7 @@ toScene game =
                             ,_scores = Map.assocs (scores game)}
 
 -------------------------
--- Trace
+-- Status
 -------------------------
 
 calculatePlayersSeen :: Game -> Player -> [(String, Pos)]
@@ -456,39 +453,39 @@ calculateEggsSeen game player =
       ws = walls game
   in filter (\pos' -> canSee pos' pos ws) candidates
 
-sendTrace :: Game -> Player -> IO ()
-sendTrace game player =
-  do send (CurrentPos . playerPos)
-     send (Health . playerHealth)
-     send (PlayersSeen . calculatePlayersSeen game)
-     send (EggsSeen . calculateEggsSeen game)
-  where send f = writeChan (playerChan player) (f player)
+sendStatus :: Game -> Player -> IO ()
+sendStatus game player =
+  let pos = playerPos player
+      health = playerHealth player
+      players = calculatePlayersSeen game player
+      eggs = calculateEggsSeen game player
+  in writeChan (playerChan player) (Status pos health players eggs)
 
 sendRemoved :: Player -> IO ()
 sendRemoved player =
   writeChan (playerChan player) Removed
 
-runTraceQueue :: UTCTime -> State Game [Player]
-runTraceQueue t =
-  do queue <- traceQueue <$> get
-     let (update, keep) = partition needsTrace queue
+runStatusQueue :: UTCTime -> State Game [Player]
+runStatusQueue t =
+  do queue <- statusQueue <$> get
+     let (update, keep) = partition needsStatus queue
          updateIds = snd <$> update
      players <- mapM getPlayer updateIds
      let validIds = fst <$> filter (isJust . snd) (zip updateIds players)
          newEntries = map ((,) newTime) validIds
-     modify (\game -> game {traceQueue = keep ++ newEntries})
+     modify (\game -> game {statusQueue = keep ++ newEntries})
      return $ catMaybes players
-  where needsTrace (time,_) = time <= t
-        newTime = addUTCTime playerTraceInterval t
+  where needsStatus (time,_) = time <= t
+        newTime = addUTCTime playerStatusInterval t
 
-runTrace :: Game -> UTCTime -> IO Game
-runTrace game t =
+runStatus :: Game -> UTCTime -> IO Game
+runStatus game t =
   if not $ gameRunning game
      then do let players = snd <$> evalState gamePlayers game
              forM_ players sendRemoved
              return game
-     else do let (players,game') = runState (runTraceQueue t) game
-             forM_ players (sendTrace game')
+     else do let (players,game') = runState (runStatusQueue t) game
+             forM_ players (sendStatus game')
              return game'
 
 runKilledPlayers :: Game -> IO Game
@@ -516,7 +513,7 @@ runGame' chan renderChan game t0 =
      afterInput <- runInput chan game
      let game' = execState runSimulation afterInput
      _ <- sendScene renderChan (toScene game')
-     game'' <- runTrace game' t0
+     game'' <- runStatus game' t0
      game''' <- runKilledPlayers game''
      let t1 =
            addUTCTime (realToFrac frameTime)
